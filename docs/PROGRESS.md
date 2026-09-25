@@ -23,8 +23,7 @@ below; far too little to conclude anything). Nothing trades; no money is at risk
 - [x] `vps` branch created (2026-09-25); the server deploys from it.
 - [ ] Decide whether to merge Profit Mode into `main` (a pull request), or keep it on its own branches for now.
 - [x] Reports repo created and the server set up (2026-09-25).
-- [ ] On the server, set `JEV_EVERY=50` in `~/jev-trader/.env` (it still says 10, which overrides
-      the new default), then `systemctl --user restart jev-recorder`.
+- [x] `JEV_EVERY=50` set in the server's `.env` (2026-09-25).
 - [ ] Rotate the TypeSafe API key that was pasted in chat; put the new one only in the server's `.env`.
 - [ ] Optional: install the TypeSafe skill (`claude plugin marketplace add typesafe-ai/skills`, then
       `claude plugin install typesafe@typesafe-ai`); the cloud session's permission guard blocked it.
