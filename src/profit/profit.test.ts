@@ -186,3 +186,40 @@ describe("jev forecaster", () => {
     expect(JSON.stringify(state).length).toBeLessThan(4000); // ~1k tokens: well under a cent per 100 calls
   });
 });
+
+describe("status page", () => {
+  const base = {
+    costs: { takerFeeBps: 3, makerFeeBps: 0, gasBpsPerTx: 1.8 },
+    coverage: { hours: 30, blockCoverage: 0.97, venueFresh: { binance: 0.95 } },
+    market: { spreadBps: { p50: 6 }, printsPerHour: 100, usdPerHour: 5000, distinctTakers: 4, distinctMakers: 3 },
+    makerMarkouts: [{ horizon: 33, n: 500, netBps: 1.0 }],
+    takerArb: [{ thresholdBps: 5, trades: 40, perHour: 2, netBps: 1.5, hitRate: 0.6 }],
+    leadLag: { best: { lag: 3, corr: 0.4 }, catchUp: [{ rows: 10, beta: 0.8 }] },
+    forecasts: { models: { jev: { logLoss: 0.9, directional: [{ threshold: 0.2, n: 50, meanSignedBps: 20 }] }, prior: { logLoss: 1.0 }, logistic: { logLoss: 0.95 } } },
+  };
+
+  test("gates are judged from the report", async () => {
+    const { gates } = await import("./status");
+    const g = gates(base);
+    expect(g.map((x) => x.state)).toEqual(["pass", "fail", "pass", "pass"]);
+    expect(gates({ ...base, coverage: { ...base.coverage, hours: 3 } }).every((x) => x.state === "collecting")).toBe(true);
+    const noJevEdge = gates({ ...base, forecasts: { models: { ...base.forecasts.models, jev: { logLoss: 1.2, directional: [{ threshold: 0.2, n: 5, meanSignedBps: 1 }] } } } });
+    expect(noJevEdge[3]!.state).toBe("fail");
+  });
+
+  test("renders with everything missing, and with a full report", async () => {
+    const { renderStatus } = await import("./status");
+    const empty = renderStatus({ report: null, health: null, deploy: null, now: new Date(0) });
+    expect(empty).toContain("No health response");
+    expect(empty).toContain("No report yet");
+    const full = renderStatus({
+      report: base, now: new Date(0),
+      health: { ok: true, lastBlock: 5, lastBookAgeMs: 100, uptimeS: 7200, lastMid: 0.0226, lastSpreadBps: 6, stats: { recorded: 10, jevCalls: 1 }, venues: [{ venue: "okx", symbol: "MON-USDT", connected: true, lastQuoteAgeMs: null, lastError: null }] },
+      deploy: { commit: "abcdef123", branch: "vps", deployedAt: "t", checkedAt: "t", result: "ok" },
+    });
+    expect(full).toContain("🟢 **Recording**");
+    expect(full).toContain("| okx | MON-USDT | connected, no quotes | never |");
+    expect(full).toContain("`abcdef1` from `vps`");
+    expect(full).toContain("✅ pass");
+  });
+});

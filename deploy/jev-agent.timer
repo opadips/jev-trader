@@ -1,0 +1,10 @@
+# Every 5 minutes: check for a new deploy; the agent itself only reports hourly (or after a deploy).
+[Unit]
+Description=Run the jev-trader VPS agent every 5 minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+
+[Install]
+WantedBy=timers.target

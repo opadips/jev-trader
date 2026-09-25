@@ -135,4 +135,6 @@ A separate mode whose only goal is to find out whether a bot on Kuru MON-USDC ca
 - Jev earns a role only by beating simple baselines out of sample. Report what the data says, including "no edge".
 - Changes to shared modules (`chain.ts`, `book.ts`, `trades.ts`, `config.ts`) stay backward compatible with the demo.
 - `bun test` must pass. Keep the analysis in pure functions with tests; use `src/profit/synth.ts` and `scripts/fake-rpc.ts` to test without a live chain.
+- Keep docs/PROGRESS.md current: update it at the end of every work session (phase table, done, decisions, waiting on the user, next).
+- The server is reached only through GitHub (docs/VPS-SETUP.md): it deploys the `vps` branch when `bun test` passes and pushes status to the reports repo. Never add a way to run arbitrary commands on it through git.
 - The server it runs on is shared with other services: unprivileged user, loopback-only ports, resource limits (deploy/jev-recorder.service). Never commit `.env` or any key.

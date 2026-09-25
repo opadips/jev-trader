@@ -4,6 +4,7 @@
  *   bun run analyze                         # last 72 hours
  *   bun run analyze --hours 24              # last 24 hours ("all" for everything; ~1 GB of RAM per 2M rows)
  *   bun run analyze --json > report.json    # machine-readable
+ *   bun run analyze --json-out report.json  # text on stdout and JSON to a file, one pass
  *   bun run analyze --db path --gas-mon 0.036 --order-mon 200
  *
  * Gas is expressed in bps of one order's notional (gas MON / order MON), so it does not depend on price.
@@ -20,6 +21,7 @@ const { values: args } = parseArgs({
     "gas-mon": { type: "string", default: "0.036" },
     "order-mon": { type: "string", default: "200" },
     json: { type: "boolean", default: false },
+    "json-out": { type: "string" },
   },
 });
 
@@ -29,7 +31,9 @@ const lastTs = store.lastTs();
 const fromTs = args.hours === "all" || lastTs === null ? 0 : lastTs - Number(args.hours) * 3_600_000;
 const books = store.books({ fromTs, lite: true });
 if (books.length < 200) {
-  console.log(`only ${books.length} book rows in ${args.db}; let the recorder run longer (an hour is ~12,000 rows).`);
+  const note = `only ${books.length} book rows in ${args.db}; let the recorder run longer (an hour is ~12,000 rows).`;
+  if (args["json-out"]) await Bun.write(args["json-out"], JSON.stringify({ note }));
+  console.log(args.json ? JSON.stringify({ note }) : note);
   process.exit(0);
 }
 const trades = store.trades(books[0]!.block, books.at(-1)!.block);
@@ -47,6 +51,7 @@ const report = {
   forecasts: evaluateForecasts(books, trades, preds),
 };
 
+if (args["json-out"]) await Bun.write(args["json-out"], JSON.stringify(report, null, 2));
 if (args.json) {
   console.log(JSON.stringify(report, null, 2));
   process.exit(0);

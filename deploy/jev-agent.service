@@ -1,0 +1,11 @@
+# The VPS agent (deploy/vps-agent.sh), started by jev-agent.timer. Runs as the unprivileged user.
+[Unit]
+Description=jev-trader VPS agent: deploy from GitHub, push status reports
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=%h/jev-trader/deploy/vps-agent.sh
+Nice=15
+MemoryMax=1G
+TimeoutStartSec=15min

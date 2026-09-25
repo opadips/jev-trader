@@ -70,23 +70,13 @@ Phase 1 passes if any one of these holds across several separate days (run `--ho
 If none holds after two weeks, the honest conclusion is that this market does not have an edge for
 us, and the loss is time plus under $15 of Jev calls.
 
-## Deploying on a shared server
+## Running it on the server
 
-See `deploy/jev-recorder.service`. In short, as root once:
+docs/VPS-SETUP.md: an unprivileged user runs the recorder and an agent that deploys from the `vps`
+branch (only when `bun test` passes) and pushes an hourly status page to a private reports repo.
+The cloud session never logs in to the server.
 
-    adduser --disabled-password jev        # no sudo, not in the docker group
-    loginctl enable-linger jev
+## Tracking progress
 
-then as `jev`:
-
-    curl -fsSL https://bun.sh/install | bash
-    git clone <your fork> ~/jev-trader && cd ~/jev-trader && bun install
-    cp .env.example .env && chmod 600 .env  # set TYPESAFE_AI_API_KEY; leave PRIVATE_KEY empty
-    bun test
-    mkdir -p ~/.config/systemd/user && cp deploy/jev-recorder.service ~/.config/systemd/user/
-    systemctl --user daemon-reload && systemctl --user enable --now jev-recorder
-    curl -s 127.0.0.1:3101/health
-
-Check first that port 3101 is free (`ss -ltn | grep 3101`) and there is disk for a few GB.
-The public RPC allows about 25 requests a second per IP; the recorder uses about 13, so do not
-run the demo against the same public RPC from the same server at the same time.
+- **Live status:** the reports repo README (recorder health, venues, deploy, automatic gate checks).
+- **Project log:** docs/PROGRESS.md (phase table, done, decisions, what is waiting on whom, next).

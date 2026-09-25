@@ -4,7 +4,7 @@
 #
 #   mkdir -p ~/.config/systemd/user && cp deploy/jev-recorder.service ~/.config/systemd/user/
 #   systemctl --user daemon-reload && systemctl --user enable --now jev-recorder
-#   journalctl --user -u jev-recorder -f
+#   tail -f ~/jev-trader/data/recorder.log
 #
 # Needs `loginctl enable-linger <user>` once (as root) so it keeps running after logout.
 
@@ -15,7 +15,11 @@ Wants=network-online.target
 
 [Service]
 WorkingDirectory=%h/jev-trader
+ExecStartPre=/bin/mkdir -p %h/jev-trader/data
 ExecStart=%h/.bun/bin/bun run src/profit/recorder.ts
+# The VPS agent tails this file into the status reports (journald user logs are not always kept).
+StandardOutput=append:%h/jev-trader/data/recorder.log
+StandardError=append:%h/jev-trader/data/recorder.log
 Restart=always
 RestartSec=5
 Nice=10
