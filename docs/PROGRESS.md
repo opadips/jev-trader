@@ -101,6 +101,18 @@ below; far too little to conclude anything). Nothing trades; no money is at risk
   one 3-minute downtrend) says nothing yet.
 - Binance never quoted MON (probably not listed there); Coinbase's feed is trade-driven and sparse.
 
+## First backtest (2026-09-25 01:41 UTC, 0.9 h of data: a smoke test, not evidence)
+
+- Both strategies lost money on the unseen 0.4 h at every setting tried, bar 1 of 102 variants.
+- Quoting around the reference price: ~1,300 re-quotes an hour, and gas (~3.7 bps per fill) is what
+  sinks it; before gas its fills roughly broke even. Next grid should try far fewer re-quotes
+  (wider thresholds) and wider quotes, once there is a day of data.
+- Taking the lag: only the 8 bps threshold traded at all, a handful of times, all losing.
+- Jev v2 on 42 scored forecasts: poorly calibrated so far (log loss 1.88 vs 1.15 for simply
+  guessing the usual mix), i.e. confident and often wrong. Far too few to judge.
+- Venue freshness after the fix: Bybit 96%, OKX 93%. Jev v2 costs ~720 tokens per call (was
+  ~1,500); the server still calls every 10 blocks until `JEV_EVERY=50` is set in its `.env`.
+
 ## Open questions and known issues
 
 - Which exchanges list MON (and under which symbol) is unknown until the recorder runs; silent
