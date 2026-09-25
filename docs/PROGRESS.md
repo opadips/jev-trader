@@ -14,7 +14,7 @@ below; far too little to conclude anything). Nothing trades; no money is at risk
 |---|---|---|
 | 0. Record | 🟢 recording on the VPS since 2026-09-25 00:45 UTC | >90% of blocks recorded, a reference venue live |
 | 1. Research | 🟡 analyzer built, needs 1 to 2 weeks of data | an edge that clears costs on separate days |
-| 2. Backtest | ⚪ not started | positive on days not used for tuning |
+| 2. Backtest | 🟡 backtester built and running hourly on the server; needs days of data | positive on days not used for tuning |
 | 3. Paper trade | ⚪ not started | matches the backtest for 2+ weeks |
 | 4. Small live | ⚪ not started, budget not decided | positive and in line with paper for weeks |
 
@@ -31,10 +31,11 @@ below; far too little to conclude anything). Nothing trades; no money is at risk
 
 ## Next
 
-1. **Now to +24 h:** build the backtester (Phase 2 tool): replays the recording, simulates a strategy
-   with order size, queue position, one block of latency and gas. Test it on synthetic data, then
-   on the first real day.
-2. **+24 h:** first real review: gates on the status page, findings written up here.
+1. **+24 h:** first real review of the report and the backtest (status page), findings written up
+   here. Check the backtester against reality where we can (e.g. do simulated maker fills happen
+   at a plausible rate compared with the 4 real makers' prints).
+2. Once there is a real day of data: look for what the grids miss (other thresholds, exit rules,
+   sizes) and whether results hold hour to hour, not just on one split.
 3. **Days 2 to 14:** keep recording; backtest "take the lag" and "quote around the reference price"
    (Jev as an optional filter) day by day, tuning only on older days.
 4. **~Day 14:** verdict per strategy. If one survives: the paper trader (Phase 3). If none: stop.
@@ -67,6 +68,13 @@ below; far too little to conclude anything). Nothing trades; no money is at risk
   lists and a shorter question (request 2,394 -> 876 characters, ~1,500 -> ~550 tokens), and the
   default is one forecast every 50 blocks instead of 10. Forecasts are stored as `jev-latest@v2`;
   the analyzer scores only the newest version, so v1 and v2 are never mixed.
+
+- **2026-09-25** Backtester (Phase 2 tool): `bun run backtest` replays the recording with one block
+  of latency, gas on every transaction, taker orders walking the recorded levels, and resting
+  orders queuing by price and time behind the recorded size. Two strategies over grids: "take the
+  lag" (with and without a Jev filter) and "quote around a fair price" (reference price vs Kuru's
+  own mid). Settings picked on the first 60% of the window, reported on the last 40%. Runs hourly
+  on the server; results on the status page. 8 new tests with hand-checked queue scenarios.
 
 ## Decisions
 

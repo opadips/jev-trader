@@ -21,6 +21,7 @@
     "dev": "bun --watch run src/index.ts",
     "record": "bun run src/profit/recorder.ts",
     "analyze": "bun run src/profit/analyze.ts",
+    "backtest": "bun run src/profit/backtest-cli.ts",
     "test": "bun test"
   }
 }

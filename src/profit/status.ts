@@ -71,8 +71,8 @@ export function gates(r: any): Gate[] {
 const ICON: Record<GateState, string> = { pass: "✅ pass", fail: "❌ fail", collecting: "⏳ collecting", "no data": "⚪ no data" };
 
 /** README.md for the reports repo. */
-export function renderStatus(o: { report: any; health: any; deploy: any; now: Date }): string {
-  const { report: r, health: h, deploy: d, now } = o;
+export function renderStatus(o: { report: any; health: any; deploy: any; backtest?: any; now: Date }): string {
+  const { report: r, health: h, deploy: d, backtest: bt, now } = o;
   const L: string[] = [];
   L.push("# Jev Trader: live status", "");
   L.push(`Updated ${now.toISOString().replace("T", " ").slice(0, 16)} UTC by the VPS agent. Phase: **0 (recording) / 1 (research)**. Plan and gates: docs/PROFIT.md in the code repo.`, "");
@@ -109,14 +109,27 @@ export function renderStatus(o: { report: any; health: any; deploy: any; now: Da
     if (ll?.best) L.push(`Kuru follows the reference venues ${ll.best.lag} rows later (corr ${f(ll.best.corr, 3)}); absorbed after 10 rows: ${f(ll.catchUp?.find((x: any) => x.rows === 10)?.beta)}.`, "");
   }
 
+  L.push("## Backtest (Phase 2 tool, last 24 h)", "");
+  if (!bt) L.push("No backtest yet.", "");
+  else if (bt.note) L.push(bt.note, "");
+  else {
+    L.push(`Each strategy's settings are picked on the first ${f(bt.hours?.train, 1)} h, then scored on the last ${f(bt.hours?.test, 1)} h they never saw. Costs: ${bt.costs?.latencyBlocks} block latency, ${bt.costs?.gasMon} MON gas per transaction. A result only counts once it holds on several separate days.`, "");
+    L.push("| Strategy | Chosen settings | Tuning $/h | **Unseen $/h** | Unseen trades | Variants positive on unseen |", "|---|---|---|---|---|---|");
+    for (const fam of bt.families ?? []) {
+      const v = Object.entries(fam.chosen.variant).map(([k, x]) => `${k}=${x}`).join(", ");
+      L.push(`| ${fam.name} | ${v} | ${f(fam.chosen.train.pnlPerHourUsd, 3)} | **${f(fam.chosen.test.pnlPerHourUsd, 3)}** | ${fam.chosen.test.txs} txs, ${fam.chosen.test.fills} fills | ${fam.variantsPositiveOnTest} of ${fam.variants} |`);
+    }
+    L.push("");
+  }
+
   L.push("## Files", "");
-  L.push("- `report.txt`: the full analyzer report", "- `report.json`: the same, machine-readable", "- `health.json`: raw recorder health", "- `deploy.json`: last deploy", "- `recorder.log`: last 300 lines of the recorder log", "- `service.txt`: systemd status of the recorder and the agent timer", "");
+  L.push("- `report.txt`: the full analyzer report", "- `report.json`: the same, machine-readable", "- `health.json`: raw recorder health", "- `deploy.json`: last deploy", "- `recorder.log`: last 300 lines of the recorder log", "- `service.txt`: systemd status of the recorder and the agent timer", "- `backtest.txt` / `backtest.json`: the backtest report", "");
   return L.join("\n");
 }
 
 if (import.meta.main) {
-  const { values: a } = parseArgs({ options: { report: { type: "string" }, health: { type: "string" }, deploy: { type: "string" } } });
+  const { values: a } = parseArgs({ options: { report: { type: "string" }, health: { type: "string" }, deploy: { type: "string" }, backtest: { type: "string" } } });
   const read = async (p?: string) => { if (!p) return null; try { return JSON.parse(await Bun.file(p).text()); } catch { return null; } };
-  const [report, health, deploy] = await Promise.all([read(a.report), read(a.health), read(a.deploy)]);
-  process.stdout.write(renderStatus({ report, health, deploy, now: new Date() }));
+  const [report, health, deploy, backtest] = await Promise.all([read(a.report), read(a.health), read(a.deploy), read(a.backtest)]);
+  process.stdout.write(renderStatus({ report, health, deploy, backtest, now: new Date() }));
 }

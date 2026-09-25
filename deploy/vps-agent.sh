@@ -4,9 +4,9 @@
 #
 #   1. deploy  if origin/$DEPLOY_BRANCH moved: check it out, bun install, bun test; restart the
 #              recorder only if the tests pass, otherwise roll back and remember the bad commit
-#   2. report  hourly (and after every deploy): analyzer report, /health, recorder log tail, systemd's
-#              view of the services and the deploy record, plus a README status page, pushed to the
-#              reports repo
+#   2. report  hourly (and after every deploy): analyzer report, backtest report, /health, recorder log
+#              tail, systemd's view of the services and the deploy record, plus a README status page,
+#              pushed to the reports repo
 #   3. tidy    keep the recorder log under 50 MB
 #
 # It never runs commands that arrive through git other than the repo's own install and tests.
@@ -140,7 +140,9 @@ report() {
   { $STATUS_CMD 2>&1 || true; } | scrub >service.txt
   (cd "$REPO_DIR" && nice -n 15 "$BUN" run src/profit/analyze.ts --json-out "$REPORTS_DIR/report.json" 2>&1) | scrub >report.txt || true
   [[ -f report.json ]] || echo null >report.json
-  (cd "$REPO_DIR" && "$BUN" run src/profit/status.ts --report "$REPORTS_DIR/report.json" --health "$REPORTS_DIR/health.json" --deploy "$REPORTS_DIR/deploy.json") >README.md
+  (cd "$REPO_DIR" && nice -n 15 "$BUN" run src/profit/backtest-cli.ts --json-out "$REPORTS_DIR/backtest.json" 2>&1) | scrub >backtest.txt || true
+  [[ -f backtest.json ]] || echo null >backtest.json
+  (cd "$REPO_DIR" && "$BUN" run src/profit/status.ts --report "$REPORTS_DIR/report.json" --health "$REPORTS_DIR/health.json" --deploy "$REPORTS_DIR/deploy.json" --backtest "$REPORTS_DIR/backtest.json") >README.md
 
   git add -A
   if git commit -q -m "status $NOW"; then

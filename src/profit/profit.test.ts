@@ -233,5 +233,92 @@ describe("status page", () => {
     expect(full).toContain("| okx | MON-USDT | connected, no quotes | never |");
     expect(full).toContain("`abcdef1` from `vps`");
     expect(full).toContain("✅ pass");
+    expect(full).toContain("No backtest yet.");
+    const withBt = renderStatus({
+      report: base, health: null, deploy: null, now: new Date(0),
+      backtest: { hours: { train: 14.4, test: 9.6 }, costs: { latencyBlocks: 1, gasMon: 0.036 }, families: [{ name: "take the lag", variants: 48, variantsPositiveOnTest: 3, chosen: { variant: { thresholdBps: 5, sizeMon: 1000 }, train: { pnlPerHourUsd: 0.12 }, test: { pnlPerHourUsd: 0.05, txs: 40, fills: 40 } } }] },
+    });
+    expect(withBt).toContain("| take the lag | thresholdBps=5, sizeMon=1000 | 0.120 | **0.050** | 40 txs, 40 fills | 3 of 48 |");
+  });
+});
+
+describe("backtest", () => {
+  const flat = (n: number, over: (i: number) => Partial<import("./db").BookRow> = () => ({})) =>
+    Array.from({ length: n }, (_, i) => ({
+      block: i, ts: i * 300, bid: 0.9999, ask: 1.0001, mid: 1, spreadBps: 2, imbalance: 0,
+      bids: [[0.9999, 1000]] as [number, number][], asks: [[1.0001, 1000]] as [number, number][], depth: {}, ref: {}, readMs: 0, ...over(i),
+    }));
+  const print = (block: number, side: "buy" | "sell", size: number, price: number) =>
+    ({ block, logIndex: 0, tx: `0x${block}${side}`, side, price, size, maker: "0xm", taker: "0xt", orderId: 1 });
+  const costs = { latencyBlocks: 1, gasMon: 0, takerFeeBps: 0, makerFeeBps: 0, tick: 1e-5 };
+  const maker = { sizeMon: 500, requoteBps: 100, maxInventoryMon: 1e9, skewBps: 0, useReference: false };
+
+  test("walk takes levels best first", async () => {
+    const { walk } = await import("./backtest");
+    const w = walk([[1, 100], [1.1, 100]], 150);
+    expect(w.qty).toBe(150);
+    expect(w.price).toBeCloseTo((100 + 50 * 1.1) / 150, 12);
+    expect(walk([[1, 100]], 150).qty).toBe(100);
+  });
+
+  test("maker joining the touch waits behind the queue", async () => {
+    const { refMaker } = await import("./backtest");
+    const r = refMaker(flat(10), [print(3, "sell", 600, 0.9999), print(4, "sell", 600, 0.9999)], { ...maker, halfSpreadBps: 1 }, costs);
+    expect(r.fills).toBe(1);
+    expect(r.endInventoryMon).toBeCloseTo(200, 6); // 1000 ahead: 600 + 400 eaten first, 200 left for us
+    expect(r.txs).toBe(1);
+  });
+
+  test("maker improving the price is first in line; prints through the price fill it", async () => {
+    const { refMaker } = await import("./backtest");
+    const r = refMaker(flat(10), [print(3, "sell", 100, 0.9999)], { ...maker, halfSpreadBps: 0.5 }, costs);
+    expect(r.endInventoryMon).toBeCloseTo(100, 6);
+  });
+
+  test("cancels ahead of us move us up the queue; prints before we are live do not count", async () => {
+    const { refMaker } = await import("./backtest");
+    const books = flat(10, (i) => (i >= 2 ? { bids: [[0.9999, 100]] as [number, number][] } : {}));
+    const r = refMaker(books, [print(1, "sell", 5000, 0.9999), print(3, "sell", 150, 0.9999)], { ...maker, halfSpreadBps: 1 }, costs);
+    expect(r.endInventoryMon).toBeCloseTo(50, 6);
+  });
+
+  test("gas is charged per transaction at the landing row's mid", async () => {
+    const { refMaker } = await import("./backtest");
+    const r = refMaker(flat(10), [], { ...maker, halfSpreadBps: 1 }, { ...costs, gasMon: 0.5 });
+    expect(r.txs).toBe(1);
+    expect(r.gasUsd).toBeCloseTo(0.5, 9);
+    expect(r.pnlUsd).toBeCloseTo(-0.5, 9);
+  });
+
+  test("lag taker profits only when Kuru lags, and gas can eat it", async () => {
+    const { lagTaker } = await import("./backtest");
+    const lagged = synth({ rows: 6000, lag: 3, stepBps: 4, spreadBps: 2 }).books;
+    const p = { thresholdBps: 3, sizeMon: 500, holdRows: 10, exitBps: 0.5 };
+    const free = lagTaker(lagged, p, { ...costs, tick: 1e-6 });
+    expect(free.txs).toBeGreaterThan(50);
+    expect(free.pnlUsd).toBeGreaterThan(0);
+    expect(free.avgNetBps).toBeGreaterThan(0);
+    const pricey = lagTaker(lagged, p, { ...costs, tick: 1e-6, gasMon: 5 });
+    expect(pricey.pnlUsd).toBeLessThan(0);
+    const none = lagTaker(synth({ rows: 6000, lag: 0, stepBps: 4, spreadBps: 2 }).books, p, { ...costs, tick: 1e-6 });
+    expect(none.txs).toBe(0);
+  });
+
+  test("jev filter skips entries the forecast leans against", async () => {
+    const { lagTaker } = await import("./backtest");
+    const { books } = synth({ rows: 6000, lag: 3, stepBps: 4, spreadBps: 2 });
+    const bearish = books.map((b) => ({ block: b.block, ts: b.ts, model: "m", horizon: 100, flatBps: 5, pUp: 0, pDown: 1, pFlat: 0, choice: "down", confidence: null, latencyMs: 0, inputTokens: 0, state: null, error: null }));
+    const p = { thresholdBps: 3, sizeMon: 500, holdRows: 10 };
+    const all = lagTaker(books, p, { ...costs, tick: 1e-6 });
+    const filtered = lagTaker(books, { ...p, jev: { preds: bearish, maxAgeBlocks: 60, minAgreement: 0.2 } }, { ...costs, tick: 1e-6 });
+    expect(filtered.txs).toBeLessThan(all.txs); // no longs left
+    expect(filtered.txs).toBeGreaterThan(0); // shorts still taken
+  });
+
+  test("grid and split", async () => {
+    const { grid, splitByTime } = await import("./backtest");
+    expect(grid({ a: [1, 2], b: ["x", "y", "z"] }).length).toBe(6);
+    const s = splitByTime(flat(10), 0.4);
+    expect([s.train.length, s.test.length]).toEqual([6, 4]);
   });
 });

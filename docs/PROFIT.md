@@ -56,6 +56,27 @@ book is over 10 s old, with per-venue status and Jev error counts.
 runs the report on a synthetic market with a planted 3-block lag, to see what each section looks
 like when there is something to find.
 
+## The backtester (Phase 2 tool)
+
+`bun run backtest` (last 24 h by default; `--hours`, `--gas-mon`, `--latency-blocks`, `--json-out`)
+replays the recording and simulates two strategies, each over a grid of settings:
+
+- **Take the lag** (`lagTaker`): when the reference venues say Kuru is cheap (dear) by more than a
+  threshold, buy the ask (sell the bid), close once Kuru has caught up or after a hold limit.
+  Optionally skips entries Jev's latest forecast leans against.
+- **Quote around a fair price** (`refMaker`): one post-only order each side around fair value
+  (the reference price, or Kuru's own mid as a baseline), skewed by inventory, re-quoted in one
+  transaction only when a wanted price moves far enough.
+
+How it executes, for every strategy: a decision uses only what was known at that block; its
+transaction lands `latencyBlocks` later against that later book; taker orders walk the recorded
+price levels; resting orders queue behind the size already at their price (price, then time
+priority) and fill from the recorded taker prints; every transaction pays gas, reverted or not.
+
+Settings are picked on the first 60% of the window and reported on the last 40%, which they never
+saw. The status page shows both. Known optimism: nobody reacts to our orders, and the recorded
+prints would have happened with us in the book. Paper trading checks that.
+
 ## What counts as "an edge"
 
 Phase 1 passes if any one of these holds across several separate days (run `--hours 24` per day):

@@ -119,6 +119,27 @@ export function leadLag(books: BookRow[], maxLag = 30, catchUpRows = [1, 3, 10, 
 }
 
 /**
+ * Kuru fair value from the reference venues, per row: the reference consensus mid with the typical
+ * premium over Kuru removed (a trailing mean over up to `basisRows` earlier rows, so a steady
+ * USD/USDT/USDC basis is not mistaken for edge). NaN until 50 rows of reference data exist, and
+ * wherever the reference is stale.
+ */
+export function fairValues(books: BookRow[], basisRows = 1000): number[] {
+  const refs = refMids(books);
+  const prem = refs.map((r, i) => (r === null ? NaN : bps(r, books[i]!.mid)));
+  const out: number[] = [];
+  const win: number[] = [];
+  let sum = 0, cnt = 0;
+  for (let i = 0; i < books.length; i++) {
+    const basis = cnt >= 50 ? sum / cnt : NaN;
+    out.push(Number.isFinite(prem[i]!) && Number.isFinite(basis) ? books[i]!.mid * (1 + (prem[i]! - basis) / 10_000) : NaN);
+    if (Number.isFinite(prem[i]!)) { win.push(prem[i]!); sum += prem[i]!; cnt++; } else win.push(NaN);
+    if (win.length > basisRows) { const old = win.shift()!; if (Number.isFinite(old)) { sum -= old; cnt--; } }
+  }
+  return out;
+}
+
+/**
  * Taker arbitrage against the reference. At each row, the reference says fair value is
  * refMid adjusted by the typical premium (a trailing mean, so a steady USD/USDT/USDC basis is
  * not mistaken for edge). If buying Kuru's ask is cheaper than that fair value by more than
@@ -131,29 +152,18 @@ export function takerArb(
   opts: { thresholdsBps: number[]; horizon: number; takerFeeBps: number; gasBps: number; basisRows?: number; cooldown?: number },
 ) {
   const { thresholdsBps, horizon, takerFeeBps, gasBps, basisRows = 1000, cooldown = 10 } = opts;
-  const refs = refMids(books);
-  const prem = refs.map((r, i) => (r === null ? NaN : bps(r, books[i]!.mid)));
-  // trailing mean premium over up to `basisRows` previous rows with reference data
-  const basis: number[] = [];
-  let sum = 0, cnt = 0;
-  const win: number[] = [];
-  for (let i = 0; i < books.length; i++) {
-    basis.push(cnt >= 50 ? sum / cnt : NaN);
-    if (Number.isFinite(prem[i]!)) { win.push(prem[i]!); sum += prem[i]!; cnt++; }
-    else win.push(NaN);
-    if (win.length > basisRows) { const old = win.shift()!; if (Number.isFinite(old)) { sum -= old; cnt--; } }
-  }
+  const fair = fairValues(books, basisRows);
   const hours = books.length > 1 ? (books.at(-1)!.ts - books[0]!.ts) / 3_600_000 : NaN;
   return thresholdsBps.map((th) => {
     const pnl: number[] = [];
     let next = 0;
     for (let t = 0; t + 1 + horizon < books.length; t++) {
-      if (t < next || !Number.isFinite(prem[t]!) || !Number.isFinite(basis[t]!)) continue;
-      const fair = books[t]!.mid * (1 + (prem[t]! - basis[t]!) / 10_000);
+      const f = fair[t]!;
+      if (t < next || !Number.isFinite(f)) continue;
       const b = books[t]!, fill = books[t + 1]!, exit = books[t + 1 + horizon]!.mid;
       let r: number | null = null;
-      if (bps(fair, b.ask) > th) r = bps(exit, fill.ask);
-      else if (bps(b.bid, fair) > th) r = bps(fill.bid, exit);
+      if (bps(f, b.ask) > th) r = bps(exit, fill.ask);
+      else if (bps(b.bid, f) > th) r = bps(fill.bid, exit);
       if (r === null) continue;
       pnl.push(r - takerFeeBps - gasBps);
       next = t + cooldown;
