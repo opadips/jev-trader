@@ -1,0 +1,29 @@
+# Profit Mode recorder as a systemd *user* service, for a server shared with other services.
+# It runs as an unprivileged user (no sudo, not in the docker group), listens on loopback only,
+# and is capped on memory and CPU so it cannot starve its neighbours.
+#
+#   mkdir -p ~/.config/systemd/user && cp deploy/jev-recorder.service ~/.config/systemd/user/
+#   systemctl --user daemon-reload && systemctl --user enable --now jev-recorder
+#   journalctl --user -u jev-recorder -f
+#
+# Needs `loginctl enable-linger <user>` once (as root) so it keeps running after logout.
+
+[Unit]
+Description=jev-trader Profit Mode recorder (read-only, signs nothing)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+WorkingDirectory=%h/jev-trader
+ExecStart=%h/.bun/bin/bun run src/profit/recorder.ts
+Restart=always
+RestartSec=5
+Nice=10
+# Limits apply where the user manager has these cgroup controllers delegated (the default on
+# current systemd); elsewhere they are ignored, and Nice still keeps it polite.
+MemoryMax=512M
+CPUQuota=50%
+Environment=NODE_ENV=production
+
+[Install]
+WantedBy=default.target

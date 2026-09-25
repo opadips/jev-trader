@@ -21,7 +21,11 @@ export const TRADE_EVENT_SIG = "Trade(uint40,address,bool,uint256,uint96,address
 /** keccak256(TRADE_EVENT_SIG) — precomputed with ethers.utils.id. */
 export const TRADE_TOPIC0 = "0xf16924fba1c18c108912fcacaac7450c98eb3f2d8c0a3cdf3df7066c08f21581";
 
-export interface TradePrint { block: number; price: number; size: number; side: "buy" | "sell" }
+/** `side` is the TAKER side. `tx`, `logIndex`, `maker`, `taker` and `orderId` identify the print (lowercase addresses). */
+export interface TradePrint {
+  block: number; price: number; size: number; side: "buy" | "sell";
+  tx: string; logIndex: number; maker: string; taker: string; orderId: number;
+}
 
 /** One of our resting orders got hit. `side` is OUR side (the maker's): a taker buy fills our ask, so side is "sell". */
 export interface MakerFill { block: number; txHash: string; orderId: number; price: number; size: number; updatedSize: number; side: "buy" | "sell" }
@@ -120,13 +124,17 @@ export class TradeFeed {
     const size = toFloat(word(7), this.sizeDec);
     if (size === 0) return null;
     const block = parseInt(log.blockNumber, 16);
-    if (collectFills && this.maker && "0x" + data.slice(64 + 24, 128) === this.maker) {
+    const maker = "0x" + data.slice(64 + 24, 128);
+    if (collectFills && this.maker && maker === this.maker) {
       this.fills.push({
         block, txHash: log.transactionHash, orderId: Number(word(0)), price, size,
         updatedSize: toFloat(word(4), this.sizeDec), side: isBuy ? "sell" : "buy",
       });
     }
-    return { block, price, size, side: isBuy ? "buy" : "sell" };
+    return {
+      block, price, size, side: isBuy ? "buy" : "sell",
+      tx: log.transactionHash, logIndex: parseInt(log.logIndex, 16), maker, taker: "0x" + data.slice(5 * 64 + 24, 6 * 64), orderId: Number(word(0)),
+    };
   }
 
   summary(lastBlocks: number, currentBlock: number): TradeSummary {

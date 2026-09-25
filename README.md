@@ -2,6 +2,14 @@
 
 One decision every Monad block. A TypeSafe Jev model watches the Kuru MON-USDC order book and answers buy or sell every ~300 ms. Every block posts a real post-only limit order on that side, one tick inside the touch, replacing the last one. Fills happen when a taker hits it, so the bot earns the spread instead of paying it. A small server streams every block to the dashboard.
 
+## Profit Mode
+
+A separate, read-only research mode that records Kuru, other exchanges' MON prices and Jev forecasts, then reports whether any edge clears gas and fees. See [docs/PROFIT.md](docs/PROFIT.md).
+
+    bun run record     # record (signs nothing); health on 127.0.0.1:3101/health
+    bun run analyze    # the report
+    bun test
+
 ## Run
 
     cp .env.example .env

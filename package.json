@@ -18,6 +18,9 @@
   },
   "scripts": {
     "start": "bun run src/index.ts",
-    "dev": "bun --watch run src/index.ts"
+    "dev": "bun --watch run src/index.ts",
+    "record": "bun run src/profit/recorder.ts",
+    "analyze": "bun run src/profit/analyze.ts",
+    "test": "bun test"
   }
 }
