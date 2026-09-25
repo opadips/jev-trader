@@ -20,7 +20,8 @@ real market yet. Nothing trades; no money is at risk.
 
 ## Waiting on you
 
-- [ ] Confirm the cloud session may create and push the `vps` branch (the server deploys from it).
+- [x] `vps` branch created (2026-09-25); the server deploys from it.
+- [ ] Decide whether to merge Profit Mode into `main` (a pull request), or keep it on its own branches for now.
 - [ ] Create the private repo `opadips/jev-trader-reports` and follow docs/VPS-SETUP.md.
 - [ ] Rotate the TypeSafe API key that was pasted in chat; put the new one only in the server's `.env`.
 - [ ] Optional: install the TypeSafe skill (`claude plugin marketplace add typesafe-ai/skills`, then
@@ -53,7 +54,7 @@ real market yet. Nothing trades; no money is at risk.
 | 2026-09-24 | No real money until it proves itself on paper; budget decided after that | you |
 | 2026-09-24 | Research before strategy: measure the edges (making, taking the lag, Jev) with real data first | agreed |
 | 2026-09-25 | Work from cloud sessions; the VPS is reached only through GitHub (no SSH from the cloud) | you |
-| 2026-09-25 | Server deploys only from the `vps` branch, only if `bun test` passes | proposed, awaiting OK |
+| 2026-09-25 | Server deploys only from the `vps` branch, only if `bun test` passes | you |
 
 ## Open questions and known issues
 
