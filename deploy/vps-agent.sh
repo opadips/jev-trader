@@ -28,11 +28,15 @@ main() {
   LOG_FILE="$REPO_DIR/data/recorder.log"
   mkdir -p "$STATE_DIR"
 
-  exec 9>"$STATE_DIR/lock"
-  flock -n 9 || { echo "another agent run is in progress"; return 0; }
+  # A run that just deployed re-executes the new version of this script (see deploy) and hands
+  # over the lock it holds on fd 9.
+  if [[ "${AGENT_REEXEC:-0}" != "1" ]]; then
+    exec 9>"$STATE_DIR/lock"
+    flock -n 9 || { echo "another agent run is in progress"; return 0; }
+  fi
 
   NOW="$(date -u +%FT%TZ)"
-  FORCE_REPORT=0
+  FORCE_REPORT="${AGENT_REEXEC:-0}"
   deploy
   tidy
   report
@@ -70,6 +74,9 @@ deploy() {
     echo "$NOW" >"$STATE_DIR/deployed_at"
     rm -f "$STATE_DIR/bad_commit"
     deploy_record "$target" "$DEPLOY_BRANCH" "$NOW" "ok" "deployed ${target:0:7}, tests passed, recorder restarted"
+    wait_healthy
+    # Report with the code just deployed, not this older copy of the script.
+    AGENT_REEXEC=1 exec bash "$REPO_DIR/deploy/vps-agent.sh"
   else
     local why
     why="$(tail -n 15 "$STATE_DIR/deploy.log" | tr '\n' ' ' | cut -c1-600)"
@@ -79,6 +86,16 @@ deploy() {
     deploy_record "$current" "$DEPLOY_BRANCH" "$deployed_at" "failed" "${target:0:7} failed install or tests and was rolled back; still running ${current:0:7}. ${why}"
   fi
   FORCE_REPORT=1
+}
+
+# After a restart, give the recorder up to 90 s to answer /health so the report shows it running.
+wait_healthy() {
+  local i
+  for i in $(seq 1 "${HEALTH_WAIT_S:-90}"); do
+    curl -sf --max-time 2 -o /dev/null "$HEALTH_URL" && return 0
+    sleep 1
+  done
+  return 0
 }
 
 # Keep the systemd units in step with the repo.

@@ -83,9 +83,9 @@ export function renderStatus(o: { report: any; health: any; deploy: any; now: Da
     L.push(`${h.ok ? "🟢 **Recording**" : "🔴 **Stale**"}: block ${h.lastBlock ?? "n/a"}, last book ${h.lastBookAgeMs ?? "n/a"} ms ago, up ${f((h.uptimeS ?? 0) / 3600, 1)} h, mid ${h.lastMid ?? "n/a"}, spread ${h.lastSpreadBps ?? "n/a"} bps.`, "");
     const s = h.stats ?? {};
     L.push(`Rows ${s.recorded ?? 0}, skipped ${s.skipped ?? 0}, read errors ${s.readErrors ?? 0}, prints ${s.prints ?? 0}. Jev: ${s.jevCalls ?? 0} forecasts, ${s.jevErrors ?? 0} errors, ${s.jevAvgLatencyMs ?? "n/a"} ms average, $${s.jevUsd ?? 0} spent since start.`, "");
-    L.push("| Venue | Symbol | State | Last quote |", "|---|---|---|---|");
+    L.push("| Venue | Symbol | State | Last price change |", "|---|---|---|---|");
     for (const v of h.venues ?? []) {
-      const live = v.lastQuoteAgeMs !== null && v.lastQuoteAgeMs < 5000;
+      const live = v.live ?? (v.lastQuoteAgeMs !== null && v.lastQuoteAgeMs < 5000);
       L.push(`| ${v.venue} | ${v.symbol} | ${live ? "live" : v.connected ? "connected, no quotes" : "down"}${v.lastError ? ` (${v.lastError})` : ""} | ${v.lastQuoteAgeMs === null ? "never" : `${Math.round(v.lastQuoteAgeMs / 1000)} s ago`} |`);
     }
     L.push("");

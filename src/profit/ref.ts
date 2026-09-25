@@ -17,6 +17,11 @@ export type RefSnapshot = Record<string, VenueQuote>;
 
 interface Adapter {
   url(symbol: string): string;
+  /**
+   * The venue sends a message whenever its best bid/ask changes, so while the socket is alive a
+   * quiet feed means the last quote is still current. False for feeds that only speak on trades.
+   */
+  pushesChanges: boolean;
   subscribe?(symbol: string): unknown;
   /** Text to send every `pingMs` to keep the socket alive (the venue drops idle connections). */
   ping?: { every: number; message: string };
@@ -32,6 +37,7 @@ export const ADAPTERS: Record<string, Adapter> = {
   /** bookTicker: every best bid/ask change. {"u":1,"s":"MONUSDT","b":"0.0226","B":"100","a":"0.0227","A":"50"} */
   binance: {
     url: (s) => `wss://stream.binance.com:9443/ws/${s.toLowerCase()}@bookTicker`,
+    pushesChanges: true,
     parse(m: any) {
       if (!m || m.b === undefined || m.a === undefined) return null;
       return done({ bid: num(m.b), ask: num(m.a), bidSize: num(m.B), askSize: num(m.A) });
@@ -40,6 +46,7 @@ export const ADAPTERS: Record<string, Adapter> = {
   /** orderbook.1: {"topic":"orderbook.1.MONUSDT","type":"snapshot"|"delta","data":{"b":[["p","q"]],"a":[["p","q"]]}} */
   bybit: {
     url: () => "wss://stream.bybit.com/v5/public/spot",
+    pushesChanges: true,
     subscribe: (s) => ({ op: "subscribe", args: [`orderbook.1.${s}`] }),
     ping: { every: 20_000, message: JSON.stringify({ op: "ping" }) },
     parse(m: any, prev) {
@@ -56,6 +63,7 @@ export const ADAPTERS: Record<string, Adapter> = {
   /** bbo-tbt: {"arg":{...},"data":[{"asks":[["p","q","0","n"]],"bids":[["p","q","0","n"]],"ts":"..."}]}. Pings are the bare text "ping". */
   okx: {
     url: () => "wss://ws.okx.com:8443/ws/v5/public",
+    pushesChanges: true,
     subscribe: (s) => ({ op: "subscribe", args: [{ channel: "bbo-tbt", instId: s }] }),
     ping: { every: 25_000, message: "ping" },
     parse(m: any) {
@@ -67,6 +75,7 @@ export const ADAPTERS: Record<string, Adapter> = {
   /** ticker (sent on every trade): {"type":"ticker","best_bid":"..","best_bid_size":"..","best_ask":"..","best_ask_size":".."} */
   coinbase: {
     url: () => "wss://ws-feed.exchange.coinbase.com",
+    pushesChanges: false,
     subscribe: (s) => ({ type: "subscribe", product_ids: [s], channels: ["ticker"] }),
     parse(m: any) {
       if (m?.type !== "ticker" || m.best_bid === undefined) return null;
@@ -75,7 +84,19 @@ export const ADAPTERS: Record<string, Adapter> = {
   },
 };
 
-export interface VenueStatus { venue: string; symbol: string; connected: boolean; messages: number; quotes: number; lastQuoteTs: number | null; lastError: string | null }
+export interface VenueStatus { venue: string; symbol: string; connected: boolean; messages: number; quotes: number; lastQuoteTs: number | null; lastMessageTs: number | null; lastError: string | null }
+
+/** How long a live socket may stay quiet (keepalive replies included) before its last quote stops counting as current. */
+export const QUIET_OK_MS = 30_000;
+
+/**
+ * When a quote was last known to be current. For venues that push every change, a connected socket
+ * that has spoken recently (quotes or keepalive replies) vouches for the last quote up to now.
+ */
+export function currentAsOf(q: VenueQuote, st: Pick<VenueStatus, "connected" | "lastMessageTs">, pushesChanges: boolean, now: number): number {
+  if (pushesChanges && st.connected && st.lastMessageTs !== null && now - st.lastMessageTs <= QUIET_OK_MS) return now;
+  return q.ts;
+}
 
 /**
  * Keeps one socket per venue, reconnecting with backoff. `onTick` fires on every new quote so the
@@ -88,7 +109,7 @@ export class RefFeed {
   private stopped = false;
 
   constructor(private venues: VenueSpec[], private onTick: (venue: string, q: VenueQuote) => void = () => {}) {
-    for (const v of venues) this.status.set(v.venue, { ...v, connected: false, messages: 0, quotes: 0, lastQuoteTs: null, lastError: null });
+    for (const v of venues) this.status.set(v.venue, { ...v, connected: false, messages: 0, quotes: 0, lastQuoteTs: null, lastMessageTs: null, lastError: null });
   }
 
   start() {
@@ -103,9 +124,9 @@ export class RefFeed {
     for (const ws of this.sockets.values()) ws.close();
   }
 
-  /** Latest quote per venue, with our receive time so consumers can drop stale ones. */
-  snapshot(): RefSnapshot {
-    return Object.fromEntries([...this.latest].map(([k, q]) => [k, { ...q }]));
+  /** Latest quote per venue; `ts` is when it was last known to be current, so consumers can drop stale ones. */
+  snapshot(now = Date.now()): RefSnapshot {
+    return Object.fromEntries([...this.latest].map(([k, q]) => [k, { ...q, ts: currentAsOf(q, this.status.get(k)!, ADAPTERS[k]?.pushesChanges ?? false, now) }]));
   }
 
   statuses(): VenueStatus[] { return [...this.status.values()]; }
@@ -123,7 +144,7 @@ export class RefFeed {
         if (a.ping) ping = setInterval(() => ws.readyState === WebSocket.OPEN && ws.send(a.ping!.message), a.ping.every);
       };
       ws.onmessage = (e) => {
-        st.messages++;
+        st.messages++; st.lastMessageTs = Date.now();
         let m: unknown;
         try { m = JSON.parse(String(e.data)); } catch { return; } // "pong" and other keepalive text
         const prev = this.latest.get(v.venue) ?? null;
@@ -133,7 +154,7 @@ export class RefFeed {
           if ((m as any)?.event === "error" || (m as any)?.type === "error" || (m as any)?.success === false) st.lastError = String(err ?? "error");
           return;
         }
-        if (prev && prev.bid === q.bid && prev.ask === q.ask && prev.bidSize === q.bidSize && prev.askSize === q.askSize) { prev.ts = Date.now(); return; }
+        if (prev && prev.bid === q.bid && prev.ask === q.ask && prev.bidSize === q.bidSize && prev.askSize === q.askSize) return;
         const vq = { ...q, ts: Date.now() };
         this.latest.set(v.venue, vq);
         st.quotes++; st.lastQuoteTs = vq.ts;

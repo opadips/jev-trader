@@ -14,7 +14,7 @@ import { readBook, readVaultParams, vaultActive, log10 } from "../book";
 import { TradeFeed } from "../trades";
 import { profit, hasJev } from "./config";
 import { Store, type BookRow, type TradeRow } from "./db";
-import { RefFeed } from "./ref";
+import { RefFeed, QUIET_OK_MS } from "./ref";
 import { TradeIndex, computeFeatures, refMids } from "./features";
 import { JevForecaster, jevState } from "./jev";
 
@@ -115,9 +115,12 @@ function health() {
   const ok = ageMs !== null && ageMs < profit.staleMs;
   return {
     ok, uptimeS: Math.round((Date.now() - startedAt) / 1000), lastBlock: last?.block ?? null, lastBookAgeMs: ageMs,
-    lastMid: last?.mid ?? null, lastSpreadBps: last ? Math.round(last.spreadBps * 100) / 100 : null,
+    lastMid: last ? Math.round(last.mid * 1e7) / 1e7 : null, lastSpreadBps: last ? Math.round(last.spreadBps * 100) / 100 : null,
     stats: { ...stats, jevAvgLatencyMs: stats.jevCalls ? Math.round(stats.jevLatencySum / stats.jevCalls) : null, jevUsd: Math.round((stats.jevTokens / 1e6) * profit.jevUsdPerMTok * 1e4) / 1e4 },
-    venues: ref.statuses().map((s) => ({ ...s, lastQuoteAgeMs: s.lastQuoteTs ? Date.now() - s.lastQuoteTs : null })),
+    venues: ref.statuses().map((s) => {
+      const lastMessageAgeMs = s.lastMessageTs ? Date.now() - s.lastMessageTs : null;
+      return { ...s, live: s.connected && s.quotes > 0 && lastMessageAgeMs !== null && lastMessageAgeMs <= QUIET_OK_MS, lastQuoteAgeMs: s.lastQuoteTs ? Date.now() - s.lastQuoteTs : null, lastMessageAgeMs };
+    }),
     db: profit.dbPath,
   };
 }
@@ -134,7 +137,7 @@ const server = Bun.serve({
 
 const summary = setInterval(() => {
   const h = health();
-  const venues = h.venues.map((v) => `${v.venue}:${v.lastQuoteAgeMs !== null && v.lastQuoteAgeMs < 5000 ? "live" : v.connected ? "silent" : "down"}`).join(" ");
+  const venues = h.venues.map((v) => `${v.venue}:${v.live ? "live" : v.connected ? "silent" : "down"}`).join(" ");
   log(`block ${h.lastBlock} mid ${h.lastMid} spread ${h.lastSpreadBps}bps · rows ${stats.recorded} skipped ${stats.skipped} prints ${stats.prints} · jev ${stats.jevCalls} ok ${stats.jevErrors} err ${h.stats.jevAvgLatencyMs ?? "-"}ms $${h.stats.jevUsd} · ${venues}`);
 }, 60_000);
 

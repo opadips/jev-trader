@@ -1,5 +1,5 @@
 import { test, expect, describe } from "bun:test";
-import { ADAPTERS, consensusMid } from "./ref";
+import { ADAPTERS, consensusMid, currentAsOf, QUIET_OK_MS } from "./ref";
 import { parseVenues, DEFAULT_SYMBOLS } from "./config";
 import { Store } from "./db";
 import { TradeIndex, computeFeatures } from "./features";
@@ -46,6 +46,17 @@ describe("reference venue parsers", () => {
     expect(consensusMid({ a: q(1, now), b: q(3, now), c: q(100, now - 5000) }, now)).toBe(2);
     expect(consensusMid({ a: q(1, now), b: q(3, now), c: q(2, now) }, now)).toBe(2);
     expect(consensusMid({ a: q(1, now - 9999) }, now)).toBeNull();
+  });
+
+  test("a quiet but live change-pushing feed keeps its quote current; trade-driven feeds do not", () => {
+    const q = { bid: 1, ask: 2, bidSize: 1, askSize: 1, ts: 1_000 };
+    const now = 100_000;
+    expect(currentAsOf(q, { connected: true, lastMessageTs: now - 5_000 }, true, now)).toBe(now);
+    expect(currentAsOf(q, { connected: true, lastMessageTs: now - QUIET_OK_MS - 1 }, true, now)).toBe(1_000);
+    expect(currentAsOf(q, { connected: false, lastMessageTs: now }, true, now)).toBe(1_000);
+    expect(currentAsOf(q, { connected: true, lastMessageTs: now }, false, now)).toBe(1_000);
+    expect(ADAPTERS.coinbase!.pushesChanges).toBe(false);
+    expect(ADAPTERS.bybit!.pushesChanges).toBe(true);
   });
 
   test("venue spec parsing", () => {

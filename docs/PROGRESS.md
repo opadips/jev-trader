@@ -7,13 +7,12 @@ reports repo (`opadips/jev-trader-reports`, README), refreshed hourly by the ser
 
 ## Where we are
 
-**Phase 0 (record): server set up, first recorder start failed, fix deployed.** The agent and the
-reports repo work. The recorder did not start on the fresh server (a systemd logging bug, fixed
-below); waiting for the next report to confirm it is recording. Nothing trades; no money is at risk.
+**Phase 0 (record): recording on the VPS.** The first 7.5 minutes of real data are in (numbers
+below; far too little to conclude anything). Nothing trades; no money is at risk.
 
 | Phase | Status | Gate |
 |---|---|---|
-| 0. Record | 🟡 on the VPS, confirming the recorder runs | >90% of blocks recorded, a reference venue live |
+| 0. Record | 🟢 recording on the VPS since 2026-09-25 00:45 UTC | >90% of blocks recorded, a reference venue live |
 | 1. Research | 🟡 analyzer built, needs 1 to 2 weeks of data | an edge that clears costs on separate days |
 | 2. Backtest | ⚪ not started | positive on days not used for tuning |
 | 3. Paper trade | ⚪ not started | matches the backtest for 2+ weeks |
@@ -48,11 +47,16 @@ below); waiting for the next report to confirm it is recording. Nothing trades; 
   setup guide. Rehearsed end to end locally: first report, failed deploy rolled back, good deploy.
 
 - **2026-09-25** Server live: the agent deployed `2cfdac0` and pushed its first report. The recorder
-  never started: systemd opens a `StandardOutput=append:` file before any command runs, so the
-  service failed on a clean clone with no `data/` folder (the local rehearsal had one). Fixed by
-  redirecting inside the start command; the analyzer now reports "no recording yet" instead of
-  crashing on a missing database; reports now include `service.txt` (systemd's own status) and the
-  recorder log has timestamps.
+  could not start until `data/` existed (systemd opens a `StandardOutput=append:` file before any
+  command runs, and a clean clone has no `data/`); it started seconds later, once the agent created
+  that folder, but the first report was taken before that. Fixed in `064c772` (redirect inside the
+  start command), plus: "no recording yet" instead of an analyzer crash, `service.txt` in reports,
+  timestamps in the recorder log.
+- **2026-09-25** Two agent fixes after the `064c772` deploy produced a report mid-restart: after a
+  deploy the agent now waits up to 90 s for the recorder's health and hands over to the newly
+  deployed version of itself for the report. Reference venues that push every price change now
+  count as current while their connection is alive (a quiet book is not a stale one); venue
+  "live" in the reports uses the same rule.
 
 ## Decisions
 
@@ -63,6 +67,19 @@ below); waiting for the next report to confirm it is recording. Nothing trades; 
 | 2026-09-24 | Research before strategy: measure the edges (making, taking the lag, Jev) with real data first | agreed |
 | 2026-09-25 | Work from cloud sessions; the VPS is reached only through GitHub (no SSH from the cloud) | you |
 | 2026-09-25 | Server deploys only from the `vps` branch, only if `bun test` passes | you |
+
+## First look (2026-09-25, 7.5 minutes of data: anecdotes, not evidence)
+
+- Kuru's MON-USDC fees read from the contract: **0 bps taker, 0 bps maker**. Gas is the only cost.
+- Busier than assumed: ~3,500 prints and ~$700k per hour, 16 takers but only 4 makers; median
+  spread 4.4 bps (about 11 ticks, so there is room to quote inside); ~19,800 MON at the best level.
+- Resting orders at the touch roughly broke even before gas (half-spread 1.9 bps, then ~1.5 to 2 bps
+  of adverse move). Gas is 1.8 bps per order, so plain touch-quoting looks unprofitable so far.
+- **Kuru follows Bybit and OKX**: correlation peaks one block later (0.27), and Kuru has absorbed
+  ~49% of a reference move after 3 blocks and ~73% after 10. This is the most promising lead.
+- Jev: 212 ms median latency, no errors, ~$0.08 an hour (more tokens per call than estimated:
+  ~$25 for two weeks). Its test sample (57 forecasts, one 3-minute downtrend) says nothing yet.
+- Binance never quoted MON (probably not listed there); Coinbase's feed is trade-driven and sparse.
 
 ## Open questions and known issues
 
