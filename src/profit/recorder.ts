@@ -18,8 +18,11 @@ import { RefFeed } from "./ref";
 import { TradeIndex, computeFeatures, refMids } from "./features";
 import { JevForecaster, jevState } from "./jev";
 
-const WINDOW = 400; // recent rows kept in memory for features (> the 100-block lookback)
+const WINDOW = 400;
+const log = (...a: unknown[]) => console.log(new Date().toISOString(), ...a);
+const logError = (...a: unknown[]) => console.error(new Date().toISOString(), ...a); // recent rows kept in memory for features (> the 100-block lookback)
 
+log(`starting: rpc ${profit.rpcUrl}, db ${profit.dbPath}`);
 const provider = new ethers.providers.StaticJsonRpcProvider(profit.rpcUrl, 143);
 const params = await Kuru.ParamFetcher.getMarketParams(provider, profit.market);
 const store = new Store(profit.dbPath, { flushMs: 1000 });
@@ -82,7 +85,7 @@ async function onBlock(head: number) {
     if (jev && stats.recorded % profit.jevEvery === 0) forecast(row);
   } catch (e) {
     stats.readErrors++;
-    if (stats.readErrors % 20 === 1) console.error(`book read failed (${stats.readErrors} so far): ${(e as Error).message}`);
+    if (stats.readErrors % 20 === 1) logError(`book read failed (${stats.readErrors} so far): ${(e as Error).message}`);
   } finally {
     busy = false;
   }
@@ -101,7 +104,7 @@ function forecast(row: BookRow) {
   }).catch((e) => {
     stats.jevErrors++;
     const msg = (e as Error).message.slice(0, 300);
-    if (stats.jevErrors % 20 === 1) console.error(`jev failed (${stats.jevErrors} so far): ${msg}`);
+    if (stats.jevErrors % 20 === 1) logError(`jev failed (${stats.jevErrors} so far): ${msg}`);
     store.addPrediction({ block: row.block, ts: row.ts, model: jev!.name, horizon: profit.horizonBlocks, flatBps: profit.flatBps, pUp: 0, pDown: 0, pFlat: 0, choice: "error", confidence: null, latencyMs: 0, inputTokens: 0, state, error: msg });
   }).finally(() => { stats.jevInflight--; });
 }
@@ -129,18 +132,18 @@ const server = Bun.serve({
   },
 });
 
-const log = setInterval(() => {
+const summary = setInterval(() => {
   const h = health();
   const venues = h.venues.map((v) => `${v.venue}:${v.lastQuoteAgeMs !== null && v.lastQuoteAgeMs < 5000 ? "live" : v.connected ? "silent" : "down"}`).join(" ");
-  console.log(`block ${h.lastBlock} mid ${h.lastMid} spread ${h.lastSpreadBps}bps · rows ${stats.recorded} skipped ${stats.skipped} prints ${stats.prints} · jev ${stats.jevCalls} ok ${stats.jevErrors} err ${h.stats.jevAvgLatencyMs ?? "-"}ms $${h.stats.jevUsd} · ${venues}`);
+  log(`block ${h.lastBlock} mid ${h.lastMid} spread ${h.lastSpreadBps}bps · rows ${stats.recorded} skipped ${stats.skipped} prints ${stats.prints} · jev ${stats.jevCalls} ok ${stats.jevErrors} err ${h.stats.jevAvgLatencyMs ?? "-"}ms $${h.stats.jevUsd} · ${venues}`);
 }, 60_000);
 
 let stopping = false;
 function shutdown(sig: string) {
   if (stopping) return;
   stopping = true;
-  console.log(`${sig}: flushing and closing`);
-  clearInterval(log);
+  log(`${sig}: flushing and closing`);
+  clearInterval(summary);
   ref.stop();
   server.stop();
   store.close();
@@ -149,5 +152,5 @@ function shutdown(sig: string) {
 process.on("SIGINT", () => shutdown("SIGINT"));
 process.on("SIGTERM", () => shutdown("SIGTERM"));
 
-console.log(`profit recorder · market ${profit.market} · fees taker ${params.takerFeeBps} maker ${params.makerFeeBps} bps · venues ${profit.venues.map((v) => `${v.venue}:${v.symbol}`).join(",")} · jev ${jev ? `every ${profit.jevEvery} blocks, horizon ${profit.horizonBlocks}` : "off (no TYPESAFE_AI_API_KEY or JEV_EVERY=0)"} · db ${profit.dbPath} · health http://${profit.healthHost}:${profit.healthPort}/health`);
+log(`profit recorder · market ${profit.market} · fees taker ${params.takerFeeBps} maker ${params.makerFeeBps} bps · venues ${profit.venues.map((v) => `${v.venue}:${v.symbol}`).join(",")} · jev ${jev ? `every ${profit.jevEvery} blocks, horizon ${profit.horizonBlocks}` : "off (no TYPESAFE_AI_API_KEY or JEV_EVERY=0)"} · db ${profit.dbPath} · health http://${profit.healthHost}:${profit.healthPort}/health`);
 startBlockFeed((b) => { onBlock(b); });

@@ -78,7 +78,7 @@ export function renderStatus(o: { report: any; health: any; deploy: any; now: Da
   L.push(`Updated ${now.toISOString().replace("T", " ").slice(0, 16)} UTC by the VPS agent. Phase: **0 (recording) / 1 (research)**. Plan and gates: docs/PROFIT.md in the code repo.`, "");
 
   L.push("## Recorder", "");
-  if (!h) L.push("⚠️ **No health response**: the recorder is not running or not answering. See `recorder.log`.", "");
+  if (!h) L.push("⚠️ **No health response**: the recorder is not running or not answering. See `service.txt` (what systemd says) and `recorder.log`.", "");
   else {
     L.push(`${h.ok ? "🟢 **Recording**" : "🔴 **Stale**"}: block ${h.lastBlock ?? "n/a"}, last book ${h.lastBookAgeMs ?? "n/a"} ms ago, up ${f((h.uptimeS ?? 0) / 3600, 1)} h, mid ${h.lastMid ?? "n/a"}, spread ${h.lastSpreadBps ?? "n/a"} bps.`, "");
     const s = h.stats ?? {};
@@ -110,7 +110,7 @@ export function renderStatus(o: { report: any; health: any; deploy: any; now: Da
   }
 
   L.push("## Files", "");
-  L.push("- `report.txt`: the full analyzer report", "- `report.json`: the same, machine-readable", "- `health.json`: raw recorder health", "- `deploy.json`: last deploy", "- `recorder.log`: last 300 lines of the recorder log", "");
+  L.push("- `report.txt`: the full analyzer report", "- `report.json`: the same, machine-readable", "- `health.json`: raw recorder health", "- `deploy.json`: last deploy", "- `recorder.log`: last 300 lines of the recorder log", "- `service.txt`: systemd status of the recorder and the agent timer", "");
   return L.join("\n");
 }
 

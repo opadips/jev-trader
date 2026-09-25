@@ -15,11 +15,10 @@ Wants=network-online.target
 
 [Service]
 WorkingDirectory=%h/jev-trader
-ExecStartPre=/bin/mkdir -p %h/jev-trader/data
-ExecStart=%h/.bun/bin/bun run src/profit/recorder.ts
-# The VPS agent tails this file into the status reports (journald user logs are not always kept).
-StandardOutput=append:%h/jev-trader/data/recorder.log
-StandardError=append:%h/jev-trader/data/recorder.log
+# Log to a file the VPS agent can tail into the status reports (journald user logs are not always
+# kept). The redirect is done by the shell, after mkdir: systemd's StandardOutput=append: opens the
+# file before any command runs, so it fails on a fresh clone that has no data/ directory yet.
+ExecStart=/bin/sh -c 'mkdir -p data && exec %h/.bun/bin/bun run src/profit/recorder.ts >>data/recorder.log 2>&1'
 Restart=always
 RestartSec=5
 Nice=10

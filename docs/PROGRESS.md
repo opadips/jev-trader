@@ -7,12 +7,13 @@ reports repo (`opadips/jev-trader-reports`, README), refreshed hourly by the ser
 
 ## Where we are
 
-**Phase 0 (record): built and rehearsed, waiting on the server.** Nothing has been recorded from the
-real market yet. Nothing trades; no money is at risk.
+**Phase 0 (record): server set up, first recorder start failed, fix deployed.** The agent and the
+reports repo work. The recorder did not start on the fresh server (a systemd logging bug, fixed
+below); waiting for the next report to confirm it is recording. Nothing trades; no money is at risk.
 
 | Phase | Status | Gate |
 |---|---|---|
-| 0. Record | 🟡 built, not yet running on the VPS | >90% of blocks recorded, a reference venue live |
+| 0. Record | 🟡 on the VPS, confirming the recorder runs | >90% of blocks recorded, a reference venue live |
 | 1. Research | 🟡 analyzer built, needs 1 to 2 weeks of data | an edge that clears costs on separate days |
 | 2. Backtest | ⚪ not started | positive on days not used for tuning |
 | 3. Paper trade | ⚪ not started | matches the backtest for 2+ weeks |
@@ -22,14 +23,14 @@ real market yet. Nothing trades; no money is at risk.
 
 - [x] `vps` branch created (2026-09-25); the server deploys from it.
 - [ ] Decide whether to merge Profit Mode into `main` (a pull request), or keep it on its own branches for now.
-- [ ] Create the private repo `opadips/jev-trader-reports` and follow docs/VPS-SETUP.md.
+- [x] Reports repo created and the server set up (2026-09-25).
 - [ ] Rotate the TypeSafe API key that was pasted in chat; put the new one only in the server's `.env`.
 - [ ] Optional: install the TypeSafe skill (`claude plugin marketplace add typesafe-ai/skills`, then
       `claude plugin install typesafe@typesafe-ai`); the cloud session's permission guard blocked it.
 
 ## Next
 
-1. Server up: read the first reports, fix anything the live feeds break (venue symbols, RPC limits).
+1. Confirm from the next report that the recorder runs, then read the first reports, fix anything the live feeds break (venue symbols, RPC limits).
 2. After 24 h: first real look at spread, flow, maker markouts, lead-lag and Jev vs baselines.
 3. After 1 to 2 weeks: Phase 1 verdict per edge, written up here. Then the backtester for whichever
    edge passed, or stop if none did.
@@ -45,6 +46,13 @@ real market yet. Nothing trades; no money is at risk.
 - **2026-09-25** Server bridge: VPS agent (deploy from `vps` with tests as the gate and automatic
   rollback, hourly status push), systemd units, live status page with automatic gate checks,
   setup guide. Rehearsed end to end locally: first report, failed deploy rolled back, good deploy.
+
+- **2026-09-25** Server live: the agent deployed `2cfdac0` and pushed its first report. The recorder
+  never started: systemd opens a `StandardOutput=append:` file before any command runs, so the
+  service failed on a clean clone with no `data/` folder (the local rehearsal had one). Fixed by
+  redirecting inside the start command; the analyzer now reports "no recording yet" instead of
+  crashing on a missing database; reports now include `service.txt` (systemd's own status) and the
+  recorder log has timestamps.
 
 ## Decisions
 

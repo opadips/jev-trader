@@ -4,8 +4,9 @@
 #
 #   1. deploy  if origin/$DEPLOY_BRANCH moved: check it out, bun install, bun test; restart the
 #              recorder only if the tests pass, otherwise roll back and remember the bad commit
-#   2. report  hourly (and after every deploy): analyzer report, /health, recorder log tail and the
-#              deploy record, plus a README status page, committed and pushed to the reports repo
+#   2. report  hourly (and after every deploy): analyzer report, /health, recorder log tail, systemd's
+#              view of the services and the deploy record, plus a README status page, pushed to the
+#              reports repo
 #   3. tidy    keep the recorder log under 50 MB
 #
 # It never runs commands that arrive through git other than the repo's own install and tests.
@@ -18,8 +19,10 @@ main() {
   DEPLOY_BRANCH="${DEPLOY_BRANCH:-vps}"
   REPORT_EVERY_MIN="${REPORT_EVERY_MIN:-60}"
   HEALTH_URL="${HEALTH_URL:-http://127.0.0.1:3101/health}"
-  RESTART_CMD="${RESTART_CMD:-systemctl --user restart jev-recorder}"
+  # reset-failed first: after repeated start failures systemd refuses a plain restart
+  RESTART_CMD="${RESTART_CMD:-systemctl --user reset-failed jev-recorder 2>/dev/null; systemctl --user restart jev-recorder}"
   INSTALL_UNITS="${INSTALL_UNITS:-1}"
+  STATUS_CMD="${STATUS_CMD:-systemctl --user status jev-recorder jev-agent.timer --no-pager -l -n 30}"
   BUN="${BUN:-$HOME/.bun/bin/bun}"
   STATE_DIR="$REPO_DIR/data/agent"
   LOG_FILE="$REPO_DIR/data/recorder.log"
@@ -63,7 +66,7 @@ deploy() {
   git checkout -q -f --detach "$target"
   if "$BUN" install --frozen-lockfile >"$STATE_DIR/deploy.log" 2>&1 && "$BUN" test >>"$STATE_DIR/deploy.log" 2>&1; then
     install_units
-    $RESTART_CMD
+    bash -c "$RESTART_CMD"
     echo "$NOW" >"$STATE_DIR/deployed_at"
     rm -f "$STATE_DIR/bad_commit"
     deploy_record "$target" "$DEPLOY_BRANCH" "$NOW" "ok" "deployed ${target:0:7}, tests passed, recorder restarted"
@@ -117,6 +120,7 @@ report() {
   if ! curl -s --max-time 5 -o health.json "$HEALTH_URL"; then echo null >health.json; fi
   cp "$STATE_DIR/deploy.json" deploy.json 2>/dev/null || echo null >deploy.json
   if [[ -f "$LOG_FILE" ]]; then tail -n 300 "$LOG_FILE" | scrub >recorder.log; else echo "no log yet" >recorder.log; fi
+  { $STATUS_CMD 2>&1 || true; } | scrub >service.txt
   (cd "$REPO_DIR" && nice -n 15 "$BUN" run src/profit/analyze.ts --json-out "$REPORTS_DIR/report.json" 2>&1) | scrub >report.txt || true
   [[ -f report.json ]] || echo null >report.json
   (cd "$REPO_DIR" && "$BUN" run src/profit/status.ts --report "$REPORTS_DIR/report.json" --health "$REPORTS_DIR/health.json" --deploy "$REPORTS_DIR/deploy.json") >README.md

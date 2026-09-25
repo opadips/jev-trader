@@ -25,6 +25,12 @@ const { values: args } = parseArgs({
   },
 });
 
+if (!(await Bun.file(args.db!).exists())) {
+  const note = `no recording yet: ${args.db} does not exist. Is the recorder running?`;
+  if (args["json-out"]) await Bun.write(args["json-out"], JSON.stringify({ note }));
+  console.log(args.json ? JSON.stringify({ note }) : note);
+  process.exit(0);
+}
 const store = new Store(args.db!, { readonly: true });
 const meta = store.meta() as { market?: { takerFeeBps: number; makerFeeBps: number } };
 const lastTs = store.lastTs();
