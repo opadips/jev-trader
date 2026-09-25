@@ -43,7 +43,10 @@ if (books.length < 200) {
   process.exit(0);
 }
 const trades = store.trades(books[0]!.block, books.at(-1)!.block);
-const preds = store.predictions({ fromBlock: books[0]!.block });
+// Score only the newest prompt version (model@vN): changing the prompt starts a fresh evaluation.
+const allPreds = store.predictions({ fromBlock: books[0]!.block });
+const latestModel = allPreds.at(-1)?.model;
+const preds = allPreds.filter((p) => p.model === latestModel);
 const takerFeeBps = meta.market?.takerFeeBps ?? NaN, makerFeeBps = meta.market?.makerFeeBps ?? NaN;
 const gasBps = (Number(args["gas-mon"]) / Number(args["order-mon"])) * 10_000;
 
@@ -99,7 +102,7 @@ const fc = report.forecasts as any;
 if (!fc) console.log("  none recorded (set TYPESAFE_AI_API_KEY and JEV_EVERY)");
 else if (fc.note) console.log(`  ${fc.n} labelled: ${fc.note}`);
 else {
-  console.log(`  horizon ${fc.horizon} blocks, flat band ${fc.flatBps} bps; ${fc.n} labelled, testing on the last ${fc.testN} (up ${pct(fc.testClassShare.up)}, down ${pct(fc.testClassShare.down)}, flat ${pct(fc.testClassShare.flat)})`);
+  console.log(`  model ${latestModel}; horizon ${fc.horizon} blocks, flat band ${fc.flatBps} bps; ${fc.n} labelled, testing on the last ${fc.testN} (up ${pct(fc.testClassShare.up)}, down ${pct(fc.testClassShare.down)}, flat ${pct(fc.testClassShare.flat)})`);
   console.log(`  jev latency p50 ${f(fc.jevLatencyMs.p50, 0)} ms p95 ${f(fc.jevLatencyMs.p95, 0)} ms, errors ${pct(fc.jevErrorRate)}`);
   console.log(`  ${"model".padEnd(9)} ${"acc".padStart(6)} ${"logloss".padStart(8)} ${"brier".padStart(6)}   signed move when |pUp-pDown| > 0 / 0.2 / 0.5`);
   for (const [name, s] of Object.entries(fc.models) as [string, any][]) {

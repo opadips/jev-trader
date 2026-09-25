@@ -180,7 +180,7 @@ describe("jev forecaster", () => {
     const { JevForecaster, jevState } = await import("./jev");
     const { books, trades } = synth({ rows: 300 });
     const index = new TradeIndex(trades);
-    const state = jevState(computeFeatures(books, 250, index), books[250]!, index);
+    const state = jevState(computeFeatures(books, 250, index), books[250]!);
     let sent: any = null, url = "";
     const fakeFetch = (async (u: string, init: RequestInit) => {
       url = u; sent = JSON.parse(String(init.body));
@@ -191,10 +191,11 @@ describe("jev forecaster", () => {
     expect(url).toBe("https://example.test/v1/systemone");
     expect(sent.questions.direction.type).toBe("choice");
     expect(Object.keys(sent.questions.direction.criteria)).toEqual(["up", "down", "flat"]);
-    expect(sent.state.kuru.mid).toBe(books[250]!.mid);
-    expect(sent.state.otherExchanges.venuesLive).toBe(1);
+    expect(sent.state.kuru.touchMon).toEqual([1000, 1000]);
+    expect(sent.state.otherExchanges.returnsBps).toBeDefined();
     expect(f).toMatchObject({ pUp: 0.55, pDown: 0.15, pFlat: 0.3, choice: "up", confidence: 0.8, inputTokens: 612 });
-    expect(JSON.stringify(state).length).toBeLessThan(4000); // ~1k tokens: well under a cent per 100 calls
+    // tokens are the cost: keep the whole request small (v1 was ~2,400 chars, ~1,500 tokens)
+    expect(JSON.stringify(sent).length).toBeLessThan(1000);
   });
 });
 

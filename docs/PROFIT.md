@@ -8,7 +8,7 @@ data says yes. The two share the chain plumbing (`chain.ts`, `book.ts`, `trades.
 
 | Phase | What | Money at risk | Gate to move on |
 |---|---|---|---|
-| 0. Record | `bun run record` on a server, 1 to 2 weeks | none (Jev: under $1/day) | clean recording: >90% of blocks, reference venues live |
+| 0. Record | `bun run record` on a server, 1 to 2 weeks | none (Jev: a few cents a day) | clean recording: >90% of blocks, reference venues live |
 | 1. Research | `bun run analyze` | none | at least one edge that clears costs, stable day to day (below) |
 | 2. Backtest | replay the recording with queue position, one-block latency, gas, fees, reverts | none | positive out of sample, on days not used for tuning |
 | 3. Paper trade | the strategy live on real data, simulated fills, honest costs | none | matches the backtest for 2+ weeks |
@@ -26,7 +26,7 @@ sends a transaction.
 - `trades`: every Kuru `Trade` log (taker side, price, size, maker, taker, tx).
 - `ref_ticks`: best bid/ask from Binance, Bybit, OKX and Coinbase (whichever list MON), at most
   every 250 ms per venue.
-- `predictions`: every 10th block, Jev's up / down / flat forecast for the next 100 blocks (~30 s),
+- `predictions`: every 50th block (~15 s), Jev's up / down / flat forecast for the next 100 blocks (~30 s),
   with the exact state it saw, its latency and TypeSafe's confidence.
 - `meta`: market parameters, including Kuru's taker and maker fees read from the contract.
 
@@ -68,7 +68,7 @@ Phase 1 passes if any one of these holds across several separate days (run `--ho
   trip (printed at the bottom of the report), or it can be shown to improve the making markouts.
 
 If none holds after two weeks, the honest conclusion is that this market does not have an edge for
-us, and the loss is time plus under $15 of Jev calls.
+us, and the loss is time plus a few dollars of Jev calls.
 
 ## Running it on the server
 

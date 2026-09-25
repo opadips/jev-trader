@@ -30,8 +30,11 @@ export const profit = {
   venues: parseVenues(env("REF_VENUES", "binance,bybit,okx,coinbase"), DEFAULT_SYMBOLS),
   /** Store at most one reference tick per venue per this many ms (every Kuru book row also carries a snapshot). */
   refTickMs: Number(env("REF_TICK_MS", "250")),
-  /** Ask Jev every N recorded blocks. 10 is ~1,200 forecasts an hour, well under $1 a day. 0 turns Jev off. */
-  jevEvery: Number(env("JEV_EVERY", "10")),
+  /**
+   * Ask Jev every N recorded blocks. 50 (every ~15 s) is ~240 forecasts an hour: plenty to score a
+   * 30 s forecast, whose neighbours would mostly repeat each other anyway. 0 turns Jev off.
+   */
+  jevEvery: Number(env("JEV_EVERY", "50")),
   jevModelId: base.jevModelId,
   jevUsdPerMTok: base.jevUsdPerMTok,
   jevMaxInflight: 2,

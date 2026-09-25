@@ -23,16 +23,21 @@ below; far too little to conclude anything). Nothing trades; no money is at risk
 - [x] `vps` branch created (2026-09-25); the server deploys from it.
 - [ ] Decide whether to merge Profit Mode into `main` (a pull request), or keep it on its own branches for now.
 - [x] Reports repo created and the server set up (2026-09-25).
+- [ ] On the server, set `JEV_EVERY=50` in `~/jev-trader/.env` (it still says 10, which overrides
+      the new default), then `systemctl --user restart jev-recorder`.
 - [ ] Rotate the TypeSafe API key that was pasted in chat; put the new one only in the server's `.env`.
 - [ ] Optional: install the TypeSafe skill (`claude plugin marketplace add typesafe-ai/skills`, then
       `claude plugin install typesafe@typesafe-ai`); the cloud session's permission guard blocked it.
 
 ## Next
 
-1. Confirm from the next report that the recorder runs, then read the first reports, fix anything the live feeds break (venue symbols, RPC limits).
-2. After 24 h: first real look at spread, flow, maker markouts, lead-lag and Jev vs baselines.
-3. After 1 to 2 weeks: Phase 1 verdict per edge, written up here. Then the backtester for whichever
-   edge passed, or stop if none did.
+1. **Now to +24 h:** build the backtester (Phase 2 tool): replays the recording, simulates a strategy
+   with order size, queue position, one block of latency and gas. Test it on synthetic data, then
+   on the first real day.
+2. **+24 h:** first real review: gates on the status page, findings written up here.
+3. **Days 2 to 14:** keep recording; backtest "take the lag" and "quote around the reference price"
+   (Jev as an optional filter) day by day, tuning only on older days.
+4. **~Day 14:** verdict per strategy. If one survives: the paper trader (Phase 3). If none: stop.
 
 ## Done
 
@@ -58,6 +63,11 @@ below; far too little to conclude anything). Nothing trades; no money is at risk
   count as current while their connection is alive (a quiet book is not a stale one); venue
   "live" in the reports uses the same rule.
 
+- **2026-09-25** Jev cost cut ~13x: prompt v2 sends summaries instead of raw trade and price-level
+  lists and a shorter question (request 2,394 -> 876 characters, ~1,500 -> ~550 tokens), and the
+  default is one forecast every 50 blocks instead of 10. Forecasts are stored as `jev-latest@v2`;
+  the analyzer scores only the newest version, so v1 and v2 are never mixed.
+
 ## Decisions
 
 | Date | Decision | By |
@@ -67,6 +77,7 @@ below; far too little to conclude anything). Nothing trades; no money is at risk
 | 2026-09-24 | Research before strategy: measure the edges (making, taking the lag, Jev) with real data first | agreed |
 | 2026-09-25 | Work from cloud sessions; the VPS is reached only through GitHub (no SSH from the cloud) | you |
 | 2026-09-25 | Server deploys only from the `vps` branch, only if `bun test` passes | you |
+| 2026-09-25 | Build the backtester now, while data accumulates; test "take the lag" and "quote around the reference price", with Jev as an optional filter | you |
 
 ## First look (2026-09-25, 7.5 minutes of data: anecdotes, not evidence)
 
@@ -77,8 +88,9 @@ below; far too little to conclude anything). Nothing trades; no money is at risk
   of adverse move). Gas is 1.8 bps per order, so plain touch-quoting looks unprofitable so far.
 - **Kuru follows Bybit and OKX**: correlation peaks one block later (0.27), and Kuru has absorbed
   ~49% of a reference move after 3 blocks and ~73% after 10. This is the most promising lead.
-- Jev: 212 ms median latency, no errors, ~$0.08 an hour (more tokens per call than estimated:
-  ~$25 for two weeks). Its test sample (57 forecasts, one 3-minute downtrend) says nothing yet.
+- Jev: 212 ms median latency, no errors, ~$0.08 an hour at first (~1,500 input tokens per call,
+  1,200 calls an hour). Cut ~13x on 2026-09-25 (prompt v2, below). Its test sample (57 forecasts,
+  one 3-minute downtrend) says nothing yet.
 - Binance never quoted MON (probably not listed there); Coinbase's feed is trade-driven and sparse.
 
 ## Open questions and known issues
