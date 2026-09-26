@@ -122,6 +122,9 @@ function health() {
       return { ...s, live: s.connected && s.quotes > 0 && lastMessageAgeMs !== null && lastMessageAgeMs <= QUIET_OK_MS, lastQuoteAgeMs: s.lastQuoteTs ? Date.now() - s.lastQuoteTs : null, lastMessageAgeMs };
     }),
     db: profit.dbPath,
+    // The process's own memory. systemd's "Memory:" also counts the page cache of the growing
+    // database file, which the kernel reclaims under pressure; a real leak shows up here instead.
+    mem: (() => { const m = process.memoryUsage(); return { rssMb: Math.round(m.rss / 1e6), heapUsedMb: Math.round(m.heapUsed / 1e6) }; })(),
   };
 }
 
@@ -138,7 +141,7 @@ const server = Bun.serve({
 const summary = setInterval(() => {
   const h = health();
   const venues = h.venues.map((v) => `${v.venue}:${v.live ? "live" : v.connected ? "silent" : "down"}`).join(" ");
-  log(`block ${h.lastBlock} mid ${h.lastMid} spread ${h.lastSpreadBps}bps · rows ${stats.recorded} skipped ${stats.skipped} prints ${stats.prints} · jev ${stats.jevCalls} ok ${stats.jevErrors} err ${h.stats.jevAvgLatencyMs ?? "-"}ms $${h.stats.jevUsd} · ${venues}`);
+  log(`block ${h.lastBlock} mid ${h.lastMid} spread ${h.lastSpreadBps}bps · rows ${stats.recorded} skipped ${stats.skipped} prints ${stats.prints} · jev ${stats.jevCalls} ok ${stats.jevErrors} err ${h.stats.jevAvgLatencyMs ?? "-"}ms $${h.stats.jevUsd} · rss ${h.mem.rssMb}MB heap ${h.mem.heapUsedMb}MB · ${venues}`);
 }, 60_000);
 
 let stopping = false;

@@ -3,17 +3,18 @@
 The project log for Profit Mode. Updated at the end of every work session. Live numbers are in the
 reports repo (`opadips/jev-trader-reports`, README), refreshed hourly by the server.
 
-**Last updated:** 2026-09-25
+**Last updated:** 2026-09-26
 
 ## Where we are
 
-**Phase 0 (record): recording on the VPS.** The first 7.5 minutes of real data are in (numbers
-below; far too little to conclude anything). Nothing trades; no money is at risk.
+**Day 1 of ~14: recording cleanly, first real numbers in (below).** On day 1 nothing we tested
+makes money after costs; the one faint lead is taking very large gaps (20+ bps) with big orders.
+Nothing trades; no money is at risk.
 
 | Phase | Status | Gate |
 |---|---|---|
 | 0. Record | 🟢 recording on the VPS since 2026-09-25 00:45 UTC | >90% of blocks recorded, a reference venue live |
-| 1. Research | 🟡 analyzer built, needs 1 to 2 weeks of data | an edge that clears costs on separate days |
+| 1. Research | 🟡 day 1 done: only faint lead is big-gap lag taking; needs more days | an edge that clears costs on separate days |
 | 2. Backtest | 🟡 backtester built and running hourly on the server; needs days of data | positive on days not used for tuning |
 | 3. Paper trade | ⚪ not started | matches the backtest for 2+ weeks |
 | 4. Small live | ⚪ not started, budget not decided | positive and in line with paper for weeks |
@@ -30,13 +31,11 @@ below; far too little to conclude anything). Nothing trades; no money is at risk
 
 ## Next
 
-1. **+24 h:** first real review of the report and the backtest (status page), findings written up
-   here. Check the backtester against reality where we can (e.g. do simulated maker fills happen
-   at a plausible rate compared with the 4 real makers' prints).
-2. Once there is a real day of data: look for what the grids miss (other thresholds, exit rules,
-   sizes) and whether results hold hour to hour, not just on one split.
-3. **Days 2 to 14:** keep recording; backtest "take the lag" and "quote around the reference price"
-   (Jev as an optional filter) day by day, tuning only on older days.
+1. Read the widened backtest (large gaps, large sizes; wider and calmer quoting) and the memory
+   numbers (the service showed 443 of 512 MB; the new health fields tell a leak from file cache).
+2. Decide Jev's role (needs you): change the question (e.g. a 3 s horizon, or "is it safe to
+   quote now") or pause it. It costs $0.16 a day, so there is no rush.
+3. **Days 2 to 14:** keep recording; check day by day whether the big-gap lag trade repeats.
 4. **~Day 14:** verdict per strategy. If one survives: the paper trader (Phase 3). If none: stop.
 
 ## Done
@@ -75,6 +74,11 @@ below; far too little to conclude anything). Nothing trades; no money is at risk
   own mid). Settings picked on the first 60% of the window, reported on the last 40%. Runs hourly
   on the server; results on the status page. 8 new tests with hand-checked queue scenarios.
 
+- **2026-09-26** Day 1 review (above). Backtest grids widened: lag taking now tries gaps of 5 to
+  30 bps, sizes up to 10,000 MON and holds of 3 to 33 blocks; quoting tries 2 to 12 bps from fair
+  value and re-quote thresholds up to 8 bps. Recorder health reports its own memory (resident and
+  heap), to tell a leak apart from the reclaimable file cache systemd also counts.
+
 ## Decisions
 
 | Date | Decision | By |
@@ -85,6 +89,38 @@ below; far too little to conclude anything). Nothing trades; no money is at risk
 | 2026-09-25 | Work from cloud sessions; the VPS is reached only through GitHub (no SSH from the cloud) | you |
 | 2026-09-25 | Server deploys only from the `vps` branch, only if `bun test` passes | you |
 | 2026-09-25 | Build the backtester now, while data accumulates; test "take the lag" and "quote around the reference price", with Jev as an optional filter | you |
+
+## Day 1 review (2026-09-26, 24.3 h of data)
+
+**Recording:** 94% of blocks (the rest are single blocks skipped when heads arrive in bursts),
+Bybit and OKX fresh 99.7%+, no read errors, no restarts since the `JEV_EVERY` change. Jev: 5,186
+forecasts, 6 errors, 227 ms average, **$0.16 for the day** (~720 tokens a call, every 50 blocks).
+
+**Market:** median spread 3.9 bps; ~2,400 prints and ~$630k an hour; 44 takers, 10 makers; median
+print 7,566 MON (bigger than we assumed); ~19,400 MON at the best price.
+
+**1. Resting orders lose even before gas.** Makers earned 2.46 bps of spread per fill but lost
+2.8 to 3.0 bps as the price moved against them: net about -0.3 to -0.5 bps per fill before any
+gas. The median fill is positive (+0.8 bps), so the loss comes from occasional large moves:
+someone informed trades against the book. The backtest agrees: every quoting variant lost on
+the unseen 9.5 h, and quoting around the reference price did barely better than around Kuru's
+own mid (-$0.64/h vs -$0.67/h), so the reference does not rescue it as built.
+
+**2. Kuru does follow Bybit/OKX, but only partly.** Correlation peaks one block later (0.32);
+Kuru absorbs 41% of a reference move in 1 block, 62% in 3, then levels off near 70%.
+
+**3. Taking the lag pays only on big gaps.** Buying/selling a block late and marking 10 s later:
+gaps over 10 bps break even (+0.75 bps, 82 trades), gaps over 20 bps made +9.5 bps each
+(19 trades in 24 h, 63% winners). Too few to trust, and the backtest's grid stopped at 8 bps and
+5,000 MON, so it never tested this. Widened on 2026-09-26 (up to 30 bps and 10,000 MON; gas per
+transaction is fixed, so bigger orders pay far less of it per dollar).
+
+**4. Jev v2 has no forecasting skill on this question.** On 2,192 held-out forecasts it was right
+33% of the time, while always guessing the most common outcome ("flat") is right 47%; its log
+loss (1.55) is worse than the plain base rate (1.06), and following its lean lost money at every
+confidence level. The simple statistical baseline did no better than the base rate either: the
+30-second direction looks close to unpredictable from these inputs. Jev does not earn a role as a
+30 s forecaster.
 
 ## First look (2026-09-25, 7.5 minutes of data: anecdotes, not evidence)
 

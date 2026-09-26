@@ -82,6 +82,7 @@ export function renderStatus(o: { report: any; health: any; deploy: any; backtes
   else {
     L.push(`${h.ok ? "🟢 **Recording**" : "🔴 **Stale**"}: block ${h.lastBlock ?? "n/a"}, last book ${h.lastBookAgeMs ?? "n/a"} ms ago, up ${f((h.uptimeS ?? 0) / 3600, 1)} h, mid ${h.lastMid ?? "n/a"}, spread ${h.lastSpreadBps ?? "n/a"} bps.`, "");
     const s = h.stats ?? {};
+    if (h.mem) L.push(`Memory: ${h.mem.rssMb} MB resident, ${h.mem.heapUsedMb} MB heap (limit 512 MB for the service, which also counts reclaimable file cache).`, "");
     L.push(`Rows ${s.recorded ?? 0}, skipped ${s.skipped ?? 0}, read errors ${s.readErrors ?? 0}, prints ${s.prints ?? 0}. Jev: ${s.jevCalls ?? 0} forecasts, ${s.jevErrors ?? 0} errors, ${s.jevAvgLatencyMs ?? "n/a"} ms average, $${s.jevUsd ?? 0} spent since start.`, "");
     L.push("| Venue | Symbol | State | Last price change |", "|---|---|---|---|");
     for (const v of h.venues ?? []) {

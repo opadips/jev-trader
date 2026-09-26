@@ -65,7 +65,8 @@ type Family = { name: string; variants: Record<string, unknown>[]; run: (rows: t
 const families: Family[] = [
   {
     name: "take the lag",
-    variants: grid<Record<string, unknown>>({ thresholdBps: [2, 3, 5, 8], sizeMon: [200, 1000, 5000], holdRows: [10, 33], jev: preds.length ? [false, true] : [false] }),
+    // Day 1: only gaps of 10 to 20+ bps paid, and gas per tx is fixed, so large sizes matter.
+    variants: grid<Record<string, unknown>>({ thresholdBps: [5, 8, 12, 16, 20, 30], sizeMon: [200, 2000, 10000], holdRows: [3, 10, 33], jev: preds.length ? [false, true] : [false] }),
     run: (rows, part, v) => lagTaker(rows, {
       ...(v as Partial<LagParams>),
       jev: v.jev ? { preds, maxAgeBlocks: 60, minAgreement: 0.2 } : undefined,
@@ -73,7 +74,8 @@ const families: Family[] = [
   },
   {
     name: "quote around a fair price",
-    variants: grid<Record<string, unknown>>({ useReference: [true, false], halfSpreadBps: [1, 2, 3], sizeMon: [200, 1000, 5000], requoteBps: [1, 2, 4] }),
+    // Day 1: tight quotes were picked off (negative before gas) and re-quoting burned gas; try wider and calmer.
+    variants: grid<Record<string, unknown>>({ useReference: [true, false], halfSpreadBps: [2, 3, 5, 8, 12], sizeMon: [200, 2000], requoteBps: [2, 4, 8] }),
     run: (rows, part, v) => refMaker(rows, tr[part], v as Partial<MakerParams>, costs, fair[part]),
   },
 ];
