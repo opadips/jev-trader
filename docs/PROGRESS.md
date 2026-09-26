@@ -115,6 +115,13 @@ gaps over 10 bps break even (+0.75 bps, 82 trades), gaps over 20 bps made +9.5 b
 5,000 MON, so it never tested this. Widened on 2026-09-26 (up to 30 bps and 10,000 MON; gas per
 transaction is fixed, so bigger orders pay far less of it per dollar).
 
+**Widened backtest (2026-09-26 01:19 UTC, same 24 h):** big-gap lag taking is the only thing that
+made money on the unseen 9.5 h, and barely: the best settings (gaps over 30 bps, 2,000 MON orders)
+made about $0.005 an hour from 6 to 12 trades, 67 to 83% of them winners; 38 of 108 variants were
+positive, all at tiny amounts. Wider and calmer quoting still lost on every variant (the wide quotes
+only get filled when the price is about to run through them). Memory right after the restart:
+168 MB resident, 75 MB heap; the next reports show whether that grows.
+
 **4. Jev v2 has no forecasting skill on this question.** On 2,192 held-out forecasts it was right
 33% of the time, while always guessing the most common outcome ("flat") is right 47%; its log
 loss (1.55) is worse than the plain base rate (1.06), and following its lean lost money at every
