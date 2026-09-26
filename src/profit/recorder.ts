@@ -109,6 +109,14 @@ function forecast(row: BookRow) {
   }).finally(() => { stats.jevInflight--; });
 }
 
+/** Once a minute: collect garbage, then measure. Without the collection the heap figure mostly tracks garbage not yet collected. */
+let mem = { rssMb: 0, heapUsedMb: 0, measuredAt: 0 };
+function measureMemory() {
+  Bun.gc(true);
+  const m = process.memoryUsage();
+  mem = { rssMb: Math.round(m.rss / 1e6), heapUsedMb: Math.round(m.heapUsed / 1e6), measuredAt: Date.now() };
+}
+
 function health() {
   const last = books.at(-1);
   const ageMs = last ? Date.now() - last.ts : null;
@@ -122,9 +130,10 @@ function health() {
       return { ...s, live: s.connected && s.quotes > 0 && lastMessageAgeMs !== null && lastMessageAgeMs <= QUIET_OK_MS, lastQuoteAgeMs: s.lastQuoteTs ? Date.now() - s.lastQuoteTs : null, lastMessageAgeMs };
     }),
     db: profit.dbPath,
-    // The process's own memory. systemd's "Memory:" also counts the page cache of the growing
-    // database file, which the kernel reclaims under pressure; a real leak shows up here instead.
-    mem: (() => { const m = process.memoryUsage(); return { rssMb: Math.round(m.rss / 1e6), heapUsedMb: Math.round(m.heapUsed / 1e6) }; })(),
+    // The process's own memory, measured right after a full garbage collection (see `summary`), so
+    // growth here is memory actually kept. systemd's "Memory:" also counts the page cache of the
+    // growing database file, which the kernel reclaims under pressure.
+    mem,
   };
 }
 
@@ -139,6 +148,7 @@ const server = Bun.serve({
 });
 
 const summary = setInterval(() => {
+  measureMemory();
   const h = health();
   const venues = h.venues.map((v) => `${v.venue}:${v.live ? "live" : v.connected ? "silent" : "down"}`).join(" ");
   log(`block ${h.lastBlock} mid ${h.lastMid} spread ${h.lastSpreadBps}bps · rows ${stats.recorded} skipped ${stats.skipped} prints ${stats.prints} · jev ${stats.jevCalls} ok ${stats.jevErrors} err ${h.stats.jevAvgLatencyMs ?? "-"}ms $${h.stats.jevUsd} · rss ${h.mem.rssMb}MB heap ${h.mem.heapUsedMb}MB · ${venues}`);

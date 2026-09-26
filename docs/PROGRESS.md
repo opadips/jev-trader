@@ -86,6 +86,15 @@ Nothing trades; no money is at risk.
   lines in the server's `.env` are ignored and can be deleted). New "lead" baseline in the
   forecast report. Same cost as v2 (~970-character request).
 
+- **2026-09-26** Memory check: the server's heap climbed ~8 MB every 10 minutes (75 -> 134 MB in
+  90 min). Soak tests found no leak in any part: the recorder on a fast fake chain (2,000 rows,
+  15,000 trades), the exchange price feed (13,000 messages) and the Jev call path (188,000 calls)
+  all stay flat after a garbage collection. The climb was most likely uncollected garbage (and the
+  earlier 443 MB systemd figure also counts reclaimable file cache). The recorder now collects
+  garbage once a minute before measuring, so the reported figure is memory actually kept; if it
+  still climbs on the server, the leak is in the real TLS connections, which cannot be tested here.
+  The fake RPC gained `FAKE_BLOCK_MS` and `FAKE_LOGS` for soak tests.
+
 ## Decisions
 
 | Date | Decision | By |
