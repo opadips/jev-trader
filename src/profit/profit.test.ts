@@ -164,6 +164,13 @@ describe("analysis", () => {
     expect(outcome(books, books.at(-1)!.block, 100, 5)).toBeNull();
   });
 
+  test("the lead baseline finds a planted lag at a short horizon", () => {
+    const s = synth({ rows: 6000, lag: 3, stepBps: 2, horizon: 10, flatBps: 2, skill: 0, seed: 5 });
+    const r = evaluateForecasts(s.books, s.trades, s.preds) as any;
+    expect(r.models.lead.accuracy).toBeGreaterThan(r.models.prior.accuracy);
+    expect(r.models.lead.directional[0].meanSignedBps).toBeGreaterThan(0);
+  });
+
   test("a skilled forecaster beats the baselines; a skill-less one does not", () => {
     const good = evaluateForecasts(books, trades, preds) as any;
     expect(good.models.jev.accuracy).toBeGreaterThan(good.models.prior.accuracy + 0.2);
@@ -192,7 +199,12 @@ describe("jev forecaster", () => {
     expect(sent.questions.direction.type).toBe("choice");
     expect(Object.keys(sent.questions.direction.criteria)).toEqual(["up", "down", "flat"]);
     expect(sent.state.kuru.touchMon).toEqual([1000, 1000]);
-    expect(sent.state.otherExchanges.returnsBps).toBeDefined();
+    expect(sent.state.otherExchanges.returnsBps["1"]).toBeDefined();
+    expect(sent.state.otherExchanges.notYetFollowedBps["5"]).toBeDefined();
+    expect(sent.state.horizonBlocks).toBe(10);
+    expect(sent.questions.direction.criteria.flat).toBe("within 2 bps");
+    const { QUESTION } = await import("./jev");
+    expect(new JevForecaster({ fetch: fakeFetch }).name.endsWith(`@v${QUESTION.version}`)).toBe(true);
     expect(f).toMatchObject({ pUp: 0.55, pDown: 0.15, pFlat: 0.3, choice: "up", confidence: 0.8, inputTokens: 612 });
     // tokens are the cost: keep the whole request small (v1 was ~2,400 chars, ~1,500 tokens)
     expect(JSON.stringify(sent).length).toBeLessThan(1000);

@@ -33,8 +33,9 @@ Nothing trades; no money is at risk.
 
 1. Read the widened backtest (large gaps, large sizes; wider and calmer quoting) and the memory
    numbers (the service showed 443 of 512 MB; the new health fields tell a leak from file cache).
-2. Decide Jev's role (needs you): change the question (e.g. a 3 s horizon, or "is it safe to
-   quote now") or pause it. It costs $0.16 a day, so there is no rush.
+2. Score Jev's new 3-second question (v3) once a day of v3 forecasts exists, against the prior,
+   momentum, logistic and the new "lead" rule (Kuru catches up with Bybit/OKX). If it does not
+   beat "lead", it adds nothing a one-line rule does not.
 3. **Days 2 to 14:** keep recording; check day by day whether the big-gap lag trade repeats.
 4. **~Day 14:** verdict per strategy. If one survives: the paper trader (Phase 3). If none: stop.
 
@@ -79,6 +80,12 @@ Nothing trades; no money is at risk.
   value and re-quote thresholds up to 8 bps. Recorder health reports its own memory (resident and
   heap), to tell a leak apart from the reclaimable file cache systemd also counts.
 
+- **2026-09-26** Jev question v3: Kuru's mid in 10 blocks (~3 s), flat within 2 bps, with the
+  other exchanges' 1/3/5/20-block moves and how much of them Kuru has not followed yet. Horizon
+  and band now live with the versioned question in code (the `JEV_HORIZON_BLOCKS` / `FLAT_BPS`
+  lines in the server's `.env` are ignored and can be deleted). New "lead" baseline in the
+  forecast report. Same cost as v2 (~970-character request).
+
 ## Decisions
 
 | Date | Decision | By |
@@ -89,6 +96,7 @@ Nothing trades; no money is at risk.
 | 2026-09-25 | Work from cloud sessions; the VPS is reached only through GitHub (no SSH from the cloud) | you |
 | 2026-09-25 | Server deploys only from the `vps` branch, only if `bun test` passes | you |
 | 2026-09-25 | Build the backtester now, while data accumulates; test "take the lag" and "quote around the reference price", with Jev as an optional filter | you |
+| 2026-09-26 | Change Jev's question to the next ~3 s (10 blocks, flat within 2 bps), where the Bybit/OKX lead lives | you |
 
 ## Day 1 review (2026-09-26, 24.3 h of data)
 

@@ -31,16 +31,13 @@ export const profit = {
   /** Store at most one reference tick per venue per this many ms (every Kuru book row also carries a snapshot). */
   refTickMs: Number(env("REF_TICK_MS", "250")),
   /**
-   * Ask Jev every N recorded blocks. 50 (every ~15 s) is ~240 forecasts an hour: plenty to score a
-   * 30 s forecast, whose neighbours would mostly repeat each other anyway. 0 turns Jev off.
+   * Ask Jev every N recorded blocks. 50 (every ~15 s) is ~240 forecasts an hour, each about an
+   * independent window. The horizon and flat band belong to the question (jev.ts). 0 turns Jev off.
    */
   jevEvery: Number(env("JEV_EVERY", "50")),
   jevModelId: base.jevModelId,
   jevUsdPerMTok: base.jevUsdPerMTok,
   jevMaxInflight: 2,
-  /** Forecast horizon in blocks (~0.3 s each) and the band inside which a move counts as flat. */
-  horizonBlocks: Number(env("JEV_HORIZON_BLOCKS", "100")),
-  flatBps: Number(env("FLAT_BPS", "5")),
   /** Health endpoint. Loopback by default so nothing is exposed on a shared server. */
   healthHost: env("HEALTH_HOST", "127.0.0.1"),
   healthPort: Number(env("HEALTH_PORT", "3101")),

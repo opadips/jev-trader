@@ -26,7 +26,8 @@ sends a transaction.
 - `trades`: every Kuru `Trade` log (taker side, price, size, maker, taker, tx).
 - `ref_ticks`: best bid/ask from Binance, Bybit, OKX and Coinbase (whichever list MON), at most
   every 250 ms per venue.
-- `predictions`: every 50th block (~15 s), Jev's up / down / flat forecast for the next 100 blocks (~30 s),
+- `predictions`: every 50th block (~15 s), Jev's up / down / flat forecast. Since v3 (2026-09-26) the
+  question is the next 10 blocks (~3 s), flat within 2 bps (`QUESTION` in `src/profit/jev.ts`),
   with the exact state it saw, its latency and TypeSafe's confidence.
 - `meta`: market parameters, including Kuru's taker and maker fees read from the contract.
 
@@ -48,9 +49,10 @@ book is over 10 s old, with per-venue status and Jev error counts.
    (dear) by more than a threshold, filled a block late, marked 33 blocks later, after the taker fee
    and gas. The steady USD/USDT/USDC basis between venues is removed with a trailing mean.
 5. **Does Jev know where price goes?** On the last 40% of forecasts (never trained on): accuracy,
-   log loss and Brier score for Jev and three baselines (class frequencies, 20-block momentum, a
+   log loss and Brier score for Jev and four baselines (class frequencies, 20-block momentum, a
    logistic regression on the same features Jev sees), plus the average signed move when the
-   forecast leans one way. Jev earns a role only if it beats all three out of sample.
+   forecast leans one way. A fourth baseline, "lead", simply bets Kuru catches up with where Bybit/OKX
+   already went. Jev earns a role only if it beats all of them out of sample.
 
 `bun run scripts/profit-synth.ts data/synth.sqlite && bun run analyze --db data/synth.sqlite`
 runs the report on a synthetic market with a planted 3-block lag, to see what each section looks

@@ -16,7 +16,7 @@ import { profit, hasJev } from "./config";
 import { Store, type BookRow, type TradeRow } from "./db";
 import { RefFeed, QUIET_OK_MS } from "./ref";
 import { TradeIndex, computeFeatures, refMids } from "./features";
-import { JevForecaster, jevState } from "./jev";
+import { JevForecaster, jevState, QUESTION } from "./jev";
 
 const WINDOW = 400;
 const log = (...a: unknown[]) => console.log(new Date().toISOString(), ...a);
@@ -33,7 +33,7 @@ store.setMeta("market", {
   pricePrecision: params.pricePrecision.toString(), sizePrecision: params.sizePrecision.toString(), tickSize: params.tickSize.toString(),
   minSize: params.minSize.toString(), takerFeeBps: Number(params.takerFeeBps.toString()), makerFeeBps: Number(params.makerFeeBps.toString()),
 });
-store.setMeta("recorder", { startedAt, venues: profit.venues, jevEvery: hasJev() ? profit.jevEvery : 0, horizonBlocks: profit.horizonBlocks, flatBps: profit.flatBps, model: profit.jevModelId });
+store.setMeta("recorder", { startedAt, venues: profit.venues, jevEvery: hasJev() ? profit.jevEvery : 0, question: QUESTION, model: profit.jevModelId });
 
 // Reference venues: store a tick per venue at most every REF_TICK_MS.
 const lastTick = new Map<string, number>();
@@ -100,12 +100,12 @@ function forecast(row: BookRow) {
   stats.jevInflight++;
   jev!.forecast(state).then((f) => {
     stats.jevCalls++; stats.jevLatencySum += f.latencyMs; stats.jevTokens += f.inputTokens;
-    store.addPrediction({ block: row.block, ts: row.ts, model: jev!.name, horizon: profit.horizonBlocks, flatBps: profit.flatBps, ...f, state, error: null });
+    store.addPrediction({ block: row.block, ts: row.ts, model: jev!.name, horizon: QUESTION.horizonBlocks, flatBps: QUESTION.flatBps, ...f, state, error: null });
   }).catch((e) => {
     stats.jevErrors++;
     const msg = (e as Error).message.slice(0, 300);
     if (stats.jevErrors % 20 === 1) logError(`jev failed (${stats.jevErrors} so far): ${msg}`);
-    store.addPrediction({ block: row.block, ts: row.ts, model: jev!.name, horizon: profit.horizonBlocks, flatBps: profit.flatBps, pUp: 0, pDown: 0, pFlat: 0, choice: "error", confidence: null, latencyMs: 0, inputTokens: 0, state, error: msg });
+    store.addPrediction({ block: row.block, ts: row.ts, model: jev!.name, horizon: QUESTION.horizonBlocks, flatBps: QUESTION.flatBps, pUp: 0, pDown: 0, pFlat: 0, choice: "error", confidence: null, latencyMs: 0, inputTokens: 0, state, error: msg });
   }).finally(() => { stats.jevInflight--; });
 }
 
@@ -158,5 +158,5 @@ function shutdown(sig: string) {
 process.on("SIGINT", () => shutdown("SIGINT"));
 process.on("SIGTERM", () => shutdown("SIGTERM"));
 
-log(`profit recorder · market ${profit.market} · fees taker ${params.takerFeeBps} maker ${params.makerFeeBps} bps · venues ${profit.venues.map((v) => `${v.venue}:${v.symbol}`).join(",")} · jev ${jev ? `every ${profit.jevEvery} blocks, horizon ${profit.horizonBlocks}` : "off (no TYPESAFE_AI_API_KEY or JEV_EVERY=0)"} · db ${profit.dbPath} · health http://${profit.healthHost}:${profit.healthPort}/health`);
+log(`profit recorder · market ${profit.market} · fees taker ${params.takerFeeBps} maker ${params.makerFeeBps} bps · venues ${profit.venues.map((v) => `${v.venue}:${v.symbol}`).join(",")} · jev ${jev ? `${jev.name} every ${profit.jevEvery} blocks, horizon ${QUESTION.horizonBlocks} blocks, flat within ${QUESTION.flatBps} bps` : "off (no TYPESAFE_AI_API_KEY or JEV_EVERY=0)"} · db ${profit.dbPath} · health http://${profit.healthHost}:${profit.healthPort}/health`);
 startBlockFeed((b) => { onBlock(b); });

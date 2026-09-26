@@ -54,7 +54,12 @@ export interface Features {
    * Other exchanges. premiumBps = (consensus mid elsewhere - Kuru mid) / Kuru mid. Positive means
    * MON is dearer elsewhere. It carries a steady USD/USDT/USDC basis, so the change matters more.
    */
-  ref: { venues: number; premiumBps: number | null; premiumChg20Bps: number | null; refRetBps: { b5: number | null; b20: number | null } };
+  ref: {
+    venues: number; premiumBps: number | null;
+    /** Change in premium: how much of the other exchanges' recent move Kuru has not followed yet. */
+    premiumChg5Bps: number | null; premiumChg20Bps: number | null;
+    refRetBps: { b1: number | null; b3: number | null; b5: number | null; b20: number | null };
+  };
 }
 
 const bps = (a: number, b: number) => ((a - b) / b) * 10_000;
@@ -80,7 +85,7 @@ export function computeFeatures(books: BookRow[], i: number, trades: TradeIndex,
   const ref = refs[i] ?? null;
   const refBack = (k: number) => (i >= k ? refs[i - k] ?? null : null);
   const prem = (r: number | null, row: BookRow) => (r === null ? null : bps(r, row.mid));
-  const premNow = prem(ref, b), prem20 = prem(refBack(20), back(20));
+  const premNow = prem(ref, b), prem5 = prem(refBack(5), back(5)), prem20 = prem(refBack(20), back(20));
   const refRet = (k: number) => { const r0 = refBack(k); return ref !== null && r0 !== null ? round(bps(ref, r0), 2) : null; };
 
   return {
@@ -95,17 +100,19 @@ export function computeFeatures(books: BookRow[], i: number, trades: TradeIndex,
     ref: {
       venues: Object.values(b.ref).filter((q) => b.ts - q.ts <= 2000).length,
       premiumBps: premNow === null ? null : round(premNow, 2),
+      premiumChg5Bps: premNow !== null && prem5 !== null ? round(premNow - prem5, 2) : null,
       premiumChg20Bps: premNow !== null && prem20 !== null ? round(premNow - prem20, 2) : null,
-      refRetBps: { b5: refRet(5), b20: refRet(20) },
+      refRetBps: { b1: refRet(1), b3: refRet(3), b5: refRet(5), b20: refRet(20) },
     },
   };
 }
 
 /** Fixed-order numeric vector for the logistic baseline. Missing reference data becomes 0. */
-export const FEATURE_NAMES = ["ret1", "ret5", "ret20", "ret100", "imbalance", "cvd20", "cvd100", "spread", "vol", "premChg20", "refRet5", "refRet20"] as const;
+export const FEATURE_NAMES = ["ret1", "ret5", "ret20", "ret100", "imbalance", "cvd20", "cvd100", "spread", "vol", "premChg5", "premChg20", "refRet1", "refRet3", "refRet5", "refRet20"] as const;
 export function vector(f: Features): number[] {
   return [
     f.retBps.b1, f.retBps.b5, f.retBps.b20, f.retBps.b100, f.imbalance, f.flow.b20.cvdNorm, f.flow.b100.cvdNorm,
-    f.spreadBps, f.volBps, f.ref.premiumChg20Bps ?? 0, f.ref.refRetBps.b5 ?? 0, f.ref.refRetBps.b20 ?? 0,
+    f.spreadBps, f.volBps, f.ref.premiumChg5Bps ?? 0, f.ref.premiumChg20Bps ?? 0,
+    f.ref.refRetBps.b1 ?? 0, f.ref.refRetBps.b3 ?? 0, f.ref.refRetBps.b5 ?? 0, f.ref.refRetBps.b20 ?? 0,
   ];
 }

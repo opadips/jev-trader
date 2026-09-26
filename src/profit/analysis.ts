@@ -212,6 +212,8 @@ export function scoreForecasts(items: { pUp: number; pDown: number; pFlat: numbe
  * Jev against three baselines on the same held-out blocks (the last `testShare` of the forecasts):
  *   prior     class frequencies from the training period (knows nothing about the market state)
  *   momentum  up if the last 20 rows went up, down if they went down
+ *   lead      Kuru catches up with the other exchanges: up if they rose relative to Kuru over the
+ *             last 5 rows by more than the flat band, down if they fell, else flat
  *   logistic  up-vs-down logistic regression on the same features Jev sees, trained on the
  *             training period's rows
  * Jev earns its place only if it beats all three out of sample.
@@ -246,14 +248,19 @@ export function evaluateForecasts(books: BookRow[], trades: TradeRow[], preds: P
   const logit = trainX.length >= 30 && new Set(trainY).size === 2 ? fitLogistic(trainX, trainY) : null;
 
   const rowsOf = test.map((x) => lowerBound(books, x.p.block, byBlock));
+  const testFeatures = rowsOf.map((i) => computeFeatures(books, i, index, refs));
   const jev = test.map((x) => ({ pUp: x.p.pUp, pDown: x.p.pDown, pFlat: x.p.pFlat, ...x.o }));
   const priorF = test.map((x) => ({ ...prior, ...x.o }));
   const momentum = test.map((x, k) => {
     const i = rowsOf[k]!, r = i >= 20 ? bps(books[i]!.mid, books[i - 20]!.mid) : 0;
     return { pUp: r > 0 ? 0.6 : 0.2, pDown: r < 0 ? 0.6 : 0.2, pFlat: r === 0 ? 0.6 : 0.2, ...x.o };
   });
+  const lead = test.map((x, k) => {
+    const g = testFeatures[k]!.ref.premiumChg5Bps ?? 0;
+    return { pUp: g > flatBps ? 0.6 : 0.2, pDown: g < -flatBps ? 0.6 : 0.2, pFlat: Math.abs(g) <= flatBps ? 0.6 : 0.2, ...x.o };
+  });
   const logistic = logit && test.map((x, k) => {
-    const pu = logit.predict(vector(computeFeatures(books, rowsOf[k]!, index, refs)));
+    const pu = logit.predict(vector(testFeatures[k]!));
     const moving = 1 - prior.pFlat;
     return { pUp: pu * moving, pDown: (1 - pu) * moving, pFlat: prior.pFlat, ...x.o };
   });
@@ -261,7 +268,7 @@ export function evaluateForecasts(books: BookRow[], trades: TradeRow[], preds: P
   return {
     horizon, flatBps, n: labelled.length, testN: test.length, splitBlock: split, trainRows: trainX.length,
     testClassShare: { up: test.filter((x) => x.o.label === "up").length / test.length, down: test.filter((x) => x.o.label === "down").length / test.length, flat: test.filter((x) => x.o.label === "flat").length / test.length },
-    models: { jev: scoreForecasts(jev), prior: scoreForecasts(priorF), momentum: scoreForecasts(momentum), ...(logistic ? { logistic: scoreForecasts(logistic) } : {}) },
+    models: { jev: scoreForecasts(jev), prior: scoreForecasts(priorF), momentum: scoreForecasts(momentum), lead: scoreForecasts(lead), ...(logistic ? { logistic: scoreForecasts(logistic) } : {}) },
     jevLatencyMs: { p50: quantile(ok.map((p) => p.latencyMs), 0.5), p95: quantile(ok.map((p) => p.latencyMs), 0.95) },
     jevErrorRate: 1 - ok.length / preds.length,
   };
