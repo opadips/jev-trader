@@ -156,6 +156,17 @@ describe("analysis", () => {
     expect(none.trades).toBe(0);
   });
 
+  test("taker arb pays gas and fees on both legs, and splits by day", async () => {
+    const { takerArbByDay } = await import("./analysis");
+    const free = takerArb(books, { thresholdsBps: [5], horizon: 10, takerFeeBps: 0, gasBps: 0 })[0]!;
+    const costly = takerArb(books, { thresholdsBps: [5], horizon: 10, takerFeeBps: 0.5, gasBps: 1 })[0]!;
+    expect(costly.trades).toBe(free.trades);
+    expect(free.netBps - costly.netBps).toBeCloseTo(3, 9); // 2 x (0.5 + 1)
+    const byDay = takerArbByDay(books, { thresholdsBps: [5], horizon: 10, takerFeeBps: 0, gasBps: 0 }, 100);
+    expect(byDay.length).toBe(1);
+    expect(byDay[0]!.results[0]!.trades).toBe(free.trades);
+  });
+
   test("outcome labels", () => {
     const o = outcome(books, books[0]!.block, 100, 5)!;
     const r = ((books[100]!.mid - books[0]!.mid) / books[0]!.mid) * 10_000;

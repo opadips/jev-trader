@@ -12,7 +12,7 @@
 import { parseArgs } from "node:util";
 import { profit } from "./config";
 import { Store } from "./db";
-import { coverage, evaluateForecasts, leadLag, makerMarkouts, marketStats, takerArb } from "./analysis";
+import { coverage, evaluateForecasts, leadLag, makerMarkouts, marketStats, takerArb, takerArbByDay } from "./analysis";
 
 const { values: args } = parseArgs({
   options: {
@@ -56,7 +56,8 @@ const report = {
   market: marketStats(books, trades),
   makerMarkouts: makerMarkouts(books, trades, [1, 10, 33, 100, 333], makerFeeBps || 0),
   leadLag: leadLag(books),
-  takerArb: takerArb(books, { thresholdsBps: [0, 2, 5, 10, 20], horizon: 33, takerFeeBps: takerFeeBps || 0, gasBps }),
+  takerArb: takerArb(books, { thresholdsBps: [0, 2, 5, 10, 20, 30], horizon: 33, takerFeeBps: takerFeeBps || 0, gasBps }),
+  takerArbByDay: takerArbByDay(books, { thresholdsBps: [10, 20, 30], horizon: 33, takerFeeBps: takerFeeBps || 0, gasBps }),
   forecasts: evaluateForecasts(books, trades, preds),
 };
 
@@ -94,8 +95,10 @@ else {
   console.log(`  share of a reference move Kuru has absorbed after: ${ll.catchUp.map((x) => `${x.rows} rows ${f(x.beta, 2)}`).join(", ")}`);
 }
 
-console.log(`\n== Taker arbitrage vs reference (enter a row late, mark 33 rows later, after fee and gas)`);
+console.log(`\n== Taker arbitrage vs reference (enter a row late, exit at the touch 33 rows later, after 2 fees and 2 gas)`);
 for (const r of report.takerArb) console.log(`  edge > ${String(r.thresholdBps).padStart(2)} bps: ${r.trades} trades (${f(r.perHour, 1)}/h), net ${f(r.netBps)} bps each, win ${pct(r.hitRate)}`);
+console.log(`  by UTC day (does it repeat?):`);
+for (const d of report.takerArbByDay) console.log(`    ${d.day}: ${d.results.map((r) => `>${r.thresholdBps} bps ${r.trades} trades ${f(r.netBps)} bps`).join(", ")}`);
 
 console.log(`\n== Forecasts`);
 const fc = report.forecasts as any;

@@ -3,18 +3,19 @@
 The project log for Profit Mode. Updated at the end of every work session. Live numbers are in the
 reports repo (`opadips/jev-trader-reports`, README), refreshed hourly by the server.
 
-**Last updated:** 2026-09-26
+**Last updated:** 2026-09-27
 
 ## Where we are
 
-**Day 1 of ~14: recording cleanly, first real numbers in (below).** On day 1 nothing we tested
-makes money after costs; the one faint lead is taking very large gaps (20+ bps) with big orders.
-Nothing trades; no money is at risk.
+**Day 2 of ~14: recording cleanly; still no strategy that survives realistic costs.** The
+Bybit/OKX lead is real and stable across both days, but trading it did not hold up in the
+backtest, and Jev's 3-second forecasts do not beat a one-line rule. Nothing trades; no money is at
+risk.
 
 | Phase | Status | Gate |
 |---|---|---|
 | 0. Record | 🟢 recording on the VPS since 2026-09-25 00:45 UTC | >90% of blocks recorded, a reference venue live |
-| 1. Research | 🟡 day 1 done: only faint lead is big-gap lag taking; needs more days | an edge that clears costs on separate days |
+| 1. Research | 🟡 day 2 done: lead-lag stable, no strategy survives costs yet | an edge that clears costs on separate days |
 | 2. Backtest | 🟡 backtester built and running hourly on the server; needs days of data | positive on days not used for tuning |
 | 3. Paper trade | ⚪ not started | matches the backtest for 2+ weeks |
 | 4. Small live | ⚪ not started, budget not decided | positive and in line with paper for weeks |
@@ -31,12 +32,12 @@ Nothing trades; no money is at risk.
 
 ## Next
 
-1. Read the widened backtest (large gaps, large sizes; wider and calmer quoting) and the memory
-   numbers (the service showed 443 of 512 MB; the new health fields tell a leak from file cache).
-2. Score Jev's new 3-second question (v3) once a day of v3 forecasts exists, against the prior,
-   momentum, logistic and the new "lead" rule (Kuru catches up with Bybit/OKX). If it does not
-   beat "lead", it adds nothing a one-line rule does not.
-3. **Days 2 to 14:** keep recording; check day by day whether the big-gap lag trade repeats.
+1. Watch the corrected per-day big-gap numbers (analyzer now exits at the touch and pays gas on
+   both legs). If they stay positive after that correction on most days, dig into why the
+   backtest disagrees (it walks deeper levels with 10,000 MON and exits on catch-up).
+2. Jev v3: keep collecting (it costs ~$0.14 a day) and re-score at day 7; unless it beats the
+   "lead" rule and the logistic baseline, it gets no role in any strategy.
+3. **Days 3 to 14:** keep recording; an early stop is reasonable around day 7 if nothing changes.
 4. **~Day 14:** verdict per strategy. If one survives: the paper trader (Phase 3). If none: stop.
 
 ## Done
@@ -95,6 +96,11 @@ Nothing trades; no money is at risk.
   still climbs on the server, the leak is in the real TLS connections, which cannot be tested here.
   The fake RPC gained `FAKE_BLOCK_MS` and `FAKE_LOGS` for soak tests.
 
+- **2026-09-27** Day 2 review (below). Memory closed: no leak. Analyzer fix: the taker-arbitrage
+  check now exits at the bid/ask instead of the mid and pays gas and fees on both legs (it had
+  been flattering the big-gap result by about half a spread plus one gas); it also shows each UTC
+  day separately.
+
 ## Decisions
 
 | Date | Decision | By |
@@ -106,6 +112,31 @@ Nothing trades; no money is at risk.
 | 2026-09-25 | Server deploys only from the `vps` branch, only if `bun test` passes | you |
 | 2026-09-25 | Build the backtester now, while data accumulates; test "take the lag" and "quote around the reference price", with Jev as an optional filter | you |
 | 2026-09-26 | Change Jev's question to the next ~3 s (10 blocks, flat within 2 bps), where the Bybit/OKX lead lives | you |
+
+## Day 2 review (2026-09-27, 48 h of data)
+
+**Memory: no leak.** Measured after garbage collection every minute for 21 hours: 166 to 169 MB
+resident, 67 MB heap, flat. The 358 MB systemd shows is reclaimable file cache.
+
+**Market:** about 4x busier than day 1 (~$2.5M an hour, 3,700 prints an hour); the typical print
+now takes the whole best level (~19,000 MON). 54 takers, 13 makers. Median spread 3.8 bps.
+
+**Lead-lag: stable across both days.** Correlation 0.28 one block later; Kuru absorbs 40% of a
+Bybit/OKX move in 1 block, 60% in 3, ~70% by 30. This is the one robust pattern so far.
+
+**Resting orders:** over 48 h, roughly break-even before gas (+0.1 bps at 33 blocks), so any gas
+makes them lose. All realistic quoting variants lost on the unseen period.
+
+**Big-gap lag taking: did not hold.** The analyzer showed gaps over 20 bps paying ~9.5 bps on both
+days (40 trades in 48 h), but the backtest's pick from day-2 tuning (30 bps, 10,000 MON) lost on
+the unseen 9.6 h (18 trades, 22% winners). Part of the gap was the analyzer's own optimism
+(exit at mid, one gas), fixed today; the rest is small samples. Not an edge yet.
+
+**Jev v3 (~3 s question): some signal, but less than simple rules.** On 1,957 held-out forecasts:
+log loss 1.14 vs 0.86 for the "lead" rule and 0.76 for the logistic baseline (lower is better);
+it under-predicts "flat", which is 73% of outcomes. Unlike v2 its lean now points the right way
+(+0.5 to +1.1 bps when it leans), but the lead rule (+1.4 bps) and the logistic baseline (+2.5 bps
+when it leans) do better, and none comes near the ~7.4 bps a taker round trip costs.
 
 ## Day 1 review (2026-09-26, 24.3 h of data)
 
