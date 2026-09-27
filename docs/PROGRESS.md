@@ -23,6 +23,9 @@ risk.
 ## Waiting on you
 
 - [x] `vps` branch created (2026-09-25); the server deploys from it.
+- [ ] Delete the retired branch `claude/funny-bohr-xvrfex` on GitHub (Code > Branches > trash icon).
+      The cloud session cannot delete it: its git access refuses to delete the branch the session
+      was created with. It holds nothing that `vps` does not.
 - [ ] Decide whether to merge Profit Mode into `main` (a pull request), or keep it on its own branches for now.
 - [x] Reports repo created and the server set up (2026-09-25).
 - [x] `JEV_EVERY=50` set in the server's `.env` (2026-09-25).
@@ -117,7 +120,7 @@ risk.
 | 2026-09-25 | Server deploys only from the `vps` branch, only if `bun test` passes | you |
 | 2026-09-25 | Build the backtester now, while data accumulates; test "take the lag" and "quote around the reference price", with Jev as an optional filter | you |
 | 2026-09-26 | Change Jev's question to the next ~3 s (10 blocks, flat within 2 bps), where the Bybit/OKX lead lives | you |
-| 2026-09-27 | One branch: `vps` only; the session's working branch `claude/funny-bohr-xvrfex` deleted | you |
+| 2026-09-27 | One branch: `vps` only; the session's old working branch `claude/funny-bohr-xvrfex` is retired (nothing pushes to it) | you |
 
 ## Day 2 review (2026-09-27, 48 h of data)
 
