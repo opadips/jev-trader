@@ -137,4 +137,5 @@ A separate mode whose only goal is to find out whether a bot on Kuru MON-USDC ca
 - `bun test` must pass. Keep the analysis in pure functions with tests; use `src/profit/synth.ts` and `scripts/fake-rpc.ts` to test without a live chain.
 - Keep docs/PROGRESS.md current: update it at the end of every work session (phase table, done, decisions, waiting on the user, next).
 - The server is reached only through GitHub (docs/VPS-SETUP.md): it deploys the `vps` branch when `bun test` passes and pushes status to the reports repo. Never add a way to run arbitrary commands on it through git.
+- `vps` is the only working branch for Profit Mode: commit there directly, and only after `bun test` passes. Pushes that touch only `docs/` or `*.md` are picked up without a recorder restart.
 - The server it runs on is shared with other services: unprivileged user, loopback-only ports, resource limits (deploy/jev-recorder.service). Never commit `.env` or any key.

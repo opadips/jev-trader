@@ -3,7 +3,8 @@
 # jev-agent.timer every 5 minutes as the unprivileged user. It does three fixed things and nothing else:
 #
 #   1. deploy  if origin/$DEPLOY_BRANCH moved: check it out, bun install, bun test; restart the
-#              recorder only if the tests pass, otherwise roll back and remember the bad commit
+#              recorder only if the tests pass, otherwise roll back and remember the bad commit.
+#              A push that only changes documentation is checked out without tests or a restart.
 #   2. report  hourly (and after every deploy): analyzer report, backtest report, /health, recorder log
 #              tail, systemd's view of the services and the deploy record, plus a README status page,
 #              pushed to the reports repo
@@ -64,6 +65,15 @@ deploy() {
   fi
   if [[ "$target" == "$bad" ]]; then
     return 0 # already failed its tests; wait for a new commit
+  fi
+
+  # A push that only touches documentation (docs/, *.md) needs no tests and no restart: the
+  # recorder keeps running without a gap.
+  if ! git diff --name-only "$current" "$target" | grep -qvE '^docs/|\.md$'; then
+    echo "docs-only update ${target:0:7} (was ${current:0:7}): no restart"
+    git checkout -q -f --detach "$target"
+    deploy_record "$target" "$DEPLOY_BRANCH" "$deployed_at" "ok" "docs-only update ${target:0:7}; recorder not restarted"
+    return 0
   fi
 
   echo "deploying ${target:0:7} (was ${current:0:7})"

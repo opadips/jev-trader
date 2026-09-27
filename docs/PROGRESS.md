@@ -101,6 +101,11 @@ risk.
   been flattering the big-gap result by about half a spread plus one gas); it also shows each UTC
   day separately.
 
+- **2026-09-27** One branch: everything is committed to `vps` directly (the separate working
+  branch always pointed at the same tested commit, so it only added noise). The agent now picks up
+  documentation-only pushes without running tests or restarting the recorder, so progress-log
+  updates cause no gap in recording.
+
 ## Decisions
 
 | Date | Decision | By |
@@ -112,6 +117,7 @@ risk.
 | 2026-09-25 | Server deploys only from the `vps` branch, only if `bun test` passes | you |
 | 2026-09-25 | Build the backtester now, while data accumulates; test "take the lag" and "quote around the reference price", with Jev as an optional filter | you |
 | 2026-09-26 | Change Jev's question to the next ~3 s (10 blocks, flat within 2 bps), where the Bybit/OKX lead lives | you |
+| 2026-09-27 | One branch: `vps` only; the session's working branch `claude/funny-bohr-xvrfex` deleted | you |
 
 ## Day 2 review (2026-09-27, 48 h of data)
 
