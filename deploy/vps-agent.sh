@@ -42,6 +42,8 @@ main() {
 
   NOW="$(date -u +%FT%TZ)"
   FORCE_REPORT="${AGENT_REEXEC:-0}"
+  # every run, so units added by a deploy are installed by the new code (a deploy runs the old copy)
+  install_units
   deploy
   tidy
   report
@@ -121,8 +123,8 @@ install_units() {
     if ! cmp -s "$REPO_DIR/deploy/$u" "$dir/$u"; then cp "$REPO_DIR/deploy/$u" "$dir/$u"; changed=1; fi
   done
   [[ "$changed" == "1" ]] && systemctl --user daemon-reload || true
-  # a newly added service is enabled once, so it also comes back after a reboot
-  systemctl --user is-enabled -q jev-markets 2>/dev/null || systemctl --user enable -q jev-markets || true
+  # a newly added service is enabled and started once; a later deliberate stop is left alone
+  systemctl --user is-enabled -q jev-markets 2>/dev/null || systemctl --user enable --now -q jev-markets || true
 }
 
 tidy() {
