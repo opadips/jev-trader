@@ -114,6 +114,8 @@ risk.
   timing and errors go to `agent.txt`; an index on `books.ts` stops time-window queries from
   scanning the whole database; the agent's systemd limit is 90 minutes. Backtest JSON now keeps
   every variant's result, not just the top 5.
+  Confirmed on the server at 01:39 UTC: reports resumed, a full run takes 26 s (was over 15 min),
+  18 GB of disk free, 784 MB of data; finished days fill in one per hourly report.
 
 ## Decisions
 
