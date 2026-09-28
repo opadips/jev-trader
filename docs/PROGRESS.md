@@ -34,9 +34,7 @@ continues unchanged as the control. Nothing trades; no money is at risk.
 
 ## Next
 
-0. **Extra markets:** confirm on the server that `jev-markets` runs, its three databases grow, the
-   control shows no new read errors (shared RPC budget), and the cross-market tables fill in.
-   Then compare markets day by day; no per-market tuning unless an edge repeats on unseen days.
+0. **Extra markets:** running (confirmed 2026-09-28). Compare markets day by day once full days exist; no per-market tuning unless an edge repeats on unseen days.
 1. Watch the corrected per-day big-gap numbers (analyzer now exits at the touch and pays gas on
    both legs). If they stay positive after that correction on most days, dig into why the
    backtest disagrees (it walks deeper levels with 10,000 MON and exits on catch-up).
@@ -136,6 +134,11 @@ continues unchanged as the control. Nothing trades; no money is at risk.
   at $5/$50/$250 on unseen data). The agent also analyses each market's finished days, and trims
   the recorder logs in place (it used to swap the file, which left the recorder writing to the
   old, deleted one).
+  Confirmed on the server (first hour, 03:38 UTC): `jev-markets` running at 160 MB, every
+  expected book sample recorded, 0 read errors, every reference venue live (Binance quotes BTC and
+  ETH); the control unchanged (93% of blocks over 24 h, 1 read error in the hour). First hour,
+  anecdote only: no gaps over 5 bps on any new market, and resting orders lose before gas on all
+  three (-0.1 to -1.2 bps at 33 blocks).
 
 ## Decisions
 
