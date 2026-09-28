@@ -26,20 +26,21 @@ function rowAtOrAfter(books: BookRow[], block: number) {
 
 // ---------------------------------------------------------------------------------------------
 
-export function coverage(books: BookRow[]) {
+/** `sampleEvery`: the recorder reads a book every that many blocks, so coverage is of the expected samples. */
+export function coverage(books: BookRow[], sampleEvery = 1) {
   if (!books.length) return null;
   const first = books[0]!, last = books.at(-1)!;
   const hours = (last.ts - first.ts) / 3_600_000;
   let gaps = 0, missing = 0;
   for (let i = 1; i < books.length; i++) {
     const d = books[i]!.block - books[i - 1]!.block;
-    if (d > 1) { gaps++; missing += d - 1; }
+    if (d > sampleEvery) { gaps++; missing += d - sampleEvery; }
   }
   const venues = new Map<string, number>();
   for (const b of books) for (const [v, q] of Object.entries(b.ref)) if (b.ts - q.ts <= 2000) venues.set(v, (venues.get(v) ?? 0) + 1);
   return {
     rows: books.length, fromBlock: first.block, toBlock: last.block, hours,
-    blockCoverage: books.length / (last.block - first.block + 1), gaps, missingBlocks: missing,
+    blockCoverage: Math.min(1, books.length / (Math.floor((last.block - first.block) / sampleEvery) + 1)), gaps, missingBlocks: missing, sampleEvery,
     venueFresh: Object.fromEntries([...venues].map(([v, n]) => [v, n / books.length])),
   };
 }
@@ -55,6 +56,12 @@ export function marketStats(books: BookRow[], trades: TradeRow[]) {
   return {
     spreadBps: { p10: quantile(spreads, 0.1), p50: quantile(spreads, 0.5), p90: quantile(spreads, 0.9) },
     touchMon: { bid: quantile(books.map((b) => b.bids[0]?.[1] ?? 0), 0.5), ask: quantile(books.map((b) => b.asks[0]?.[1] ?? 0), 0.5) },
+    medianMid: quantile(books.map((b) => b.mid), 0.5),
+    /** Median resting size within 10 / 50 bps of mid, both sides, in quote units (USD for USD-quoted markets). */
+    depthQuote: {
+      "10": quantile(books.map((b) => ((b.depth["10"]?.bid ?? 0) + (b.depth["10"]?.ask ?? 0)) * b.mid), 0.5),
+      "50": quantile(books.map((b) => ((b.depth["50"]?.bid ?? 0) + (b.depth["50"]?.ask ?? 0)) * b.mid), 0.5),
+    },
     move100BlocksBps: std(r100),
     printsPerHour: trades.length / hours,
     monPerHour: vol / hours,
@@ -97,7 +104,7 @@ export function makerMarkouts(books: BookRow[], trades: TradeRow[], horizons: nu
  * reference move that Kuru has absorbed k rows later (OLS beta of Kuru's k-row forward return on
  * the reference's 1-row return).
  */
-export function leadLag(books: BookRow[], maxLag = 30, catchUpRows = [1, 3, 10, 30, 100]) {
+export function leadLag(books: BookRow[], maxLag = 30, catchUpBlocks = [1, 3, 5, 10, 20]) {
   const refs = refMids(books);
   const n = books.length;
   const kr = books.map((b, i) => (i ? bps(b.mid, books[i - 1]!.mid) : NaN));
@@ -109,13 +116,22 @@ export function leadLag(books: BookRow[], maxLag = 30, catchUpRows = [1, 3, 10, 
     for (let t = 0; t < n; t++) { const u = t + lag; if (u < 0 || u >= n) continue; a.push(rr[t]!); b.push(kr[u]!); }
     corrByLag.push({ lag, corr: corr(a, b) });
   }
-  const catchUp = catchUpRows.map((k) => {
-    const x: number[] = [], y: number[] = [];
-    for (let t = 1; t + k < n; t++) { x.push(rr[t]!); y.push(bps(books[t + k]!.mid, books[t]!.mid)); }
-    return { rows: k, beta: beta(x, y) };
+  // share absorbed after h blocks: Kuru's move from row t to the first row at least h blocks later.
+  // With sparser sampling the first such row can be later than h; `blocks` reports the median actual gap.
+  const catchUp = catchUpBlocks.map((h) => {
+    const x: number[] = [], y: number[] = [], gaps: number[] = [];
+    for (let t = 1; t < n; t++) {
+      const j = rowAtOrAfter(books, books[t]!.block + h);
+      if (j < 0) break;
+      x.push(rr[t]!); y.push(bps(books[j]!.mid, books[t]!.mid)); gaps.push(books[j]!.block - books[t]!.block);
+    }
+    return { afterBlocks: h, blocks: quantile(gaps, 0.5), beta: beta(x, y) };
   });
+  const steps: number[] = [];
+  for (let t = 1; t < n; t += Math.max(1, Math.floor(n / 5000))) steps.push(books[t]!.block - books[t - 1]!.block);
+  const blocksPerRow = quantile(steps, 0.5);
   const best = corrByLag.filter((c) => Number.isFinite(c.corr)).sort((a, b) => b.corr - a.corr)[0] ?? null;
-  return { usableRows: usable, best, corrByLag, catchUp };
+  return { usableRows: usable, blocksPerRow, best: best && { ...best, lagBlocks: best.lag * blocksPerRow }, corrByLag, catchUp };
 }
 
 /**
@@ -145,33 +161,37 @@ export function fairValues(books: BookRow[], basisRows = 1000): number[] {
  * not mistaken for edge). If buying Kuru's ask is cheaper than that fair value by more than
  * `thresholdBps`, we buy; symmetric for selling the bid. We see the book at row t and the order
  * lands a row later, so the fill price is the ask (bid) at row t+1. The exit is another taker
- * order `h` rows later, at the bid (ask) of that row. Result per round trip, after two taker fees
+ * order `horizonBlocks` blocks later, at the bid (ask) of that row. `grossBps` is before costs. Result per round trip, after two taker fees
  * and two transactions of gas. One trade per `cooldown` rows. (Until 2026-09-27 this marked the
  * exit at mid and counted one fee and one gas, which flattered it by about half a spread plus
  * one gas.)
  */
 export function takerArb(
   books: BookRow[],
-  opts: { thresholdsBps: number[]; horizon: number; takerFeeBps: number; gasBps: number; basisRows?: number; cooldown?: number },
+  opts: { thresholdsBps: number[]; horizonBlocks: number; takerFeeBps: number; gasBps: number; basisRows?: number; cooldownBlocks?: number },
 ) {
-  const { thresholdsBps, horizon, takerFeeBps, gasBps, basisRows = 1000, cooldown = 10 } = opts;
+  const { thresholdsBps, horizonBlocks, takerFeeBps, gasBps, basisRows = 1000, cooldownBlocks = 10 } = opts;
   const fair = fairValues(books, basisRows);
   const hours = books.length > 1 ? (books.at(-1)!.ts - books[0]!.ts) / 3_600_000 : NaN;
   return thresholdsBps.map((th) => {
-    const pnl: number[] = [];
-    let next = 0;
-    for (let t = 0; t + 1 + horizon < books.length; t++) {
-      const f = fair[t]!;
-      if (t < next || !Number.isFinite(f)) continue;
-      const b = books[t]!, fill = books[t + 1]!, exit = books[t + 1 + horizon]!;
+    const pnl: number[] = [], gross: number[] = [];
+    let nextBlock = 0;
+    for (let t = 0; t + 1 < books.length; t++) {
+      const f = fair[t]!, b = books[t]!;
+      if (b.block < nextBlock || !Number.isFinite(f)) continue;
+      const fill = books[t + 1]!;
+      const e = rowAtOrAfter(books, fill.block + horizonBlocks);
+      if (e < 0) break;
+      const exit = books[e]!;
       let r: number | null = null;
       if (bps(f, b.ask) > th) r = bps(exit.bid, fill.ask);
       else if (bps(b.bid, f) > th) r = bps(fill.bid, exit.ask);
       if (r === null) continue;
+      gross.push(r);
       pnl.push(r - 2 * (takerFeeBps + gasBps));
-      next = t + cooldown;
+      nextBlock = b.block + cooldownBlocks;
     }
-    return { thresholdBps: th, trades: pnl.length, perHour: pnl.length / hours, netBps: mean(pnl), hitRate: pnl.length ? pnl.filter((x) => x > 0).length / pnl.length : NaN };
+    return { thresholdBps: th, trades: pnl.length, perHour: pnl.length / hours, grossBps: mean(gross), netBps: mean(pnl), hitRate: pnl.length ? pnl.filter((x) => x > 0).length / pnl.length : NaN };
   });
 }
 

@@ -147,8 +147,8 @@ export class Store {
   // Reads for the analyzer (oldest first)
 
   /**
-   * Book rows with ts >= `fromTs`. `lite` keeps only the best level per side and drops depth, which
-   * is all the analyzer needs and cuts memory by ~3x on multi-day recordings.
+   * Book rows with fromTs <= ts < toTs. `lite` keeps only the best level per side (plus the depth
+   * bands), which is all the analyzer needs and cuts memory on multi-day recordings.
    */
   books(opts: { fromTs?: number; toTs?: number; lite?: boolean } = {}): BookRow[] {
     const { fromTs = 0, toTs = Number.MAX_SAFE_INTEGER, lite = false } = opts;
@@ -156,7 +156,7 @@ export class Store {
       const bids = JSON.parse(r.bids), asks = JSON.parse(r.asks);
       return {
         block: r.block, ts: r.ts, bid: r.bid, ask: r.ask, mid: r.mid, spreadBps: r.spread_bps, imbalance: r.imbalance,
-        bids: lite ? bids.slice(0, 1) : bids, asks: lite ? asks.slice(0, 1) : asks, depth: lite ? {} : JSON.parse(r.depth), ref: JSON.parse(r.ref), readMs: r.read_ms,
+        bids: lite ? bids.slice(0, 1) : bids, asks: lite ? asks.slice(0, 1) : asks, depth: JSON.parse(r.depth), ref: JSON.parse(r.ref), readMs: r.read_ms,
       };
     });
   }

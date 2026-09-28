@@ -1,0 +1,19 @@
+# Profit Mode: the extra Kuru markets (src/profit/markets.ts), in their own process so the MON-USDC
+# control recorder is untouched. Same rules: unprivileged user, loopback-only health, capped.
+[Unit]
+Description=jev-trader Profit Mode extra markets recorder (read-only, signs nothing)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+WorkingDirectory=%h/jev-trader
+ExecStart=/bin/sh -c 'mkdir -p data/markets && exec %h/.bun/bin/bun run src/profit/multi-recorder.ts >>data/markets.log 2>&1'
+Restart=always
+RestartSec=5
+Nice=10
+MemoryMax=512M
+CPUQuota=50%
+Environment=NODE_ENV=production
+
+[Install]
+WantedBy=default.target

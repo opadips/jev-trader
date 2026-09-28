@@ -95,7 +95,61 @@ export function renderDays(days: DayResult[]): string[] {
   return L;
 }
 
-export function renderStatus(o: { report: any; health: any; deploy: any; backtest?: any; days?: DayResult[]; agent?: string | null; now: Date }): string {
+/** One recorded market's latest 24 h analysis and backtest. */
+export interface MarketResult { name: string; report: any; backtest: any }
+
+/**
+ * The cross-market comparison: the same baseline measurements for every market, no per-market
+ * tuning. Edge figures are the taker check (enter a block late at the touch, exit 33 blocks later
+ * at the touch, gas and fees on both legs, on a $5 order) and the backtests' unseen part.
+ */
+export function renderCompare(markets: MarketResult[]): string[] {
+  const ok = markets.filter((m) => m.report && !m.report.note);
+  if (!ok.length) return ["No market has enough data yet.", ""];
+  const f = (x: unknown, d = 2) => (typeof x === "number" && Number.isFinite(x) ? x.toFixed(d) : "n/a");
+  const k = (x: unknown) => (typeof x === "number" && Number.isFinite(x) ? (x >= 1e6 ? `${(x / 1e6).toFixed(1)}M` : x >= 1e3 ? `${(x / 1e3).toFixed(0)}k` : x.toFixed(0)) : "n/a");
+  const arb = (r: any, th: number) => r.takerArb?.find((a: any) => a.thresholdBps === th);
+  const win = (a: any) => (typeof a?.hitRate === "number" && Number.isFinite(a.hitRate) && a.trades ? `${(a.hitRate * 100).toFixed(0)}%` : "n/a");
+  const L = [
+    "**Activity and costs**", "",
+    "| Market | Volume $/h | Trades/h | Median spread bps (p10 / p90) | Touch $ | Depth ±10 bps $ | Reference fresh | Lag blocks (corr) | Absorbed after 1 / 3 / 5 / 10 / 20 blocks | Gas per tx ($, bps on $5) |",
+    "|---|---|---|---|---|---|---|---|---|---|",
+  ];
+  for (const { name, report: r } of ok) {
+    const m = r.market, ll = r.leadLag;
+    const fresh = Math.max(0, ...Object.values<number>(r.coverage?.venueFresh ?? {}));
+    const abs = [1, 3, 5, 10, 20].map((h) => { const c = ll?.catchUp?.find((x: any) => x.afterBlocks === h); return c ? `${f(c.beta)}${c.blocks > h ? `@${c.blocks}` : ""}` : "n/a"; }).join(" / ");
+    L.push(`| ${name} | ${k(m.usdPerHour)} | ${f(m.printsPerHour, 0)} | ${f(m.spreadBps?.p50)} (${f(m.spreadBps?.p10)} / ${f(m.spreadBps?.p90)}) | ${k(((m.touchMon?.bid ?? 0) + (m.touchMon?.ask ?? 0)) * m.medianMid)} | ${k(m.depthQuote?.["10"])} | ${(fresh * 100).toFixed(0)}% | ${f(ll?.best?.lagBlocks, 0)} (${f(ll?.best?.corr, 3)}) | ${abs} | ${f(r.costs?.gasUsdPerTx, 4)}, ${f(r.costs?.gasBpsPerTx)} |`);
+  }
+  L.push("", "**Edge**", "",
+    "| Market | Gaps > 10 / > 20 bps per h | Gross edge > 20 bps (bps) | Net edge > 10 / > 20 bps (bps, win) | Resting order at 33 blocks: capture - adverse = net (before gas) | Lag taking, best unseen $/h at $5 / $50 / $250 | Unseen: chosen lag / quote $/h (variants positive) |",
+    "|---|---|---|---|---|---|---|");
+  for (const { name, report: r, backtest: b } of ok) {
+    const a10 = arb(r, 10), a20 = arb(r, 20);
+    const m33 = r.makerMarkouts?.find((x: any) => x.horizon === 33);
+    const lag = b?.families?.find((x: any) => x.name === "take the lag"), quote = b?.families?.find((x: any) => x.name === "quote around a fair price");
+    const bestAt = (usd: number) => { const v = (lag?.all ?? []).filter((x: any) => x[0]?.sizeUsd === usd).map((x: any) => x[2]).filter((x: any) => typeof x === "number"); return v.length ? f(Math.max(...v), 3) : "n/a"; };
+    const pos = (fam: any) => (fam ? `${fam.variantsPositiveOnTest}/${fam.variants}` : "n/a");
+    L.push(`| ${name} | ${f(a10?.perHour, 1)} / ${f(a20?.perHour, 1)} | ${f(a20?.grossBps)} | ${f(a10?.netBps)} (${win(a10)}) / ${f(a20?.netBps)} (${win(a20)}) | ${f(m33?.captureBps)} - ${f(m33?.adverseBps)} = ${f(m33?.netBps)} | ${bestAt(5)} / ${bestAt(50)} / ${bestAt(250)} | ${f(lag?.chosen?.test?.pnlPerHourUsd, 3)} (${pos(lag)}) / ${f(quote?.chosen?.test?.pnlPerHourUsd, 3)} (${pos(quote)}) |`);
+  }
+  L.push("", "Same baseline for every market, no per-market tuning. \"Best unseen\" is the best of all settings on the unseen part, so it flatters; \"chosen\" is the setting picked on the tuning part, scored on the unseen part. Books of the extra markets are read every 2 blocks, so their 1-block figures are measured at 2 blocks (\"@2\") and their taker entries land 2 blocks late, never earlier than on the control. A market is only interesting if its net edge is positive and repeats day after day.", "");
+  return L;
+}
+
+/** One line per extra market from the markets recorder's /health. */
+export function renderMarketsHealth(h: any): string[] {
+  if (!h) return ["⚠️ **Markets recorder: no health response** (see `service.txt`).", ""];
+  const L = [`${h.ok ? "🟢" : "🔴"} Markets recorder: up ${f((h.uptimeS ?? 0) / 3600, 1)} h, book every ${h.sampleEvery} blocks, ${h.stats?.samples ?? 0} samples, ${h.stats?.skipped ?? 0} skipped, ${h.stats?.requestErrors ?? 0} request errors, ${h.stats?.logErrors ?? 0} log errors.`, ""];
+  L.push("| Market | Rows | Trades | Read errors | Last book | Spread bps | Reference live |", "|---|---|---|---|---|---|---|");
+  for (const m of h.markets ?? []) {
+    const live = (m.venues ?? []).filter((v: any) => v.live).map((v: any) => v.venue).join(", ") || "none";
+    L.push(`| ${m.pair} | ${m.rows} | ${m.prints} | ${m.readErrors} | ${m.lastBookAgeMs === null ? "never" : `${(m.lastBookAgeMs / 1000).toFixed(1)} s ago`} | ${m.lastSpreadBps ?? "n/a"} | ${live} |`);
+  }
+  L.push("");
+  return L;
+}
+
+export function renderStatus(o: { report: any; health: any; deploy: any; backtest?: any; days?: DayResult[]; markets?: MarketResult[]; marketsHealth?: any; agent?: string | null; now: Date }): string {
   const { report: r, health: h, deploy: d, backtest: bt, now } = o;
   const L: string[] = [];
   L.push("# Jev Trader: live status", "");
@@ -131,7 +185,7 @@ export function renderStatus(o: { report: any; health: any; deploy: any; backtes
     L.push("## Market (last 24 h)", "");
     L.push(`Spread p50 ${f(m.spreadBps?.p50)} bps, ${f(m.printsPerHour, 0)} prints/h, $${f(m.usdPerHour, 0)}/h volume, ${m.distinctTakers} takers, ${m.distinctMakers} makers. Fees: taker ${f(r.costs.takerFeeBps)} bps, maker ${f(r.costs.makerFeeBps)} bps; gas ${f(r.costs.gasBpsPerTx)} bps per tx.`, "");
     const ll = r.leadLag;
-    if (ll?.best) L.push(`Kuru follows the reference venues ${ll.best.lag} rows later (corr ${f(ll.best.corr, 3)}); absorbed after 10 rows: ${f(ll.catchUp?.find((x: any) => x.rows === 10)?.beta)}.`, "");
+    if (ll?.best) L.push(`Kuru follows the reference venues ${f(ll.best.lagBlocks ?? ll.best.lag, 0)} blocks later (corr ${f(ll.best.corr, 3)}); absorbed after 10 blocks: ${f(ll.catchUp?.find((x: any) => x.afterBlocks === 10)?.beta)}.`, "");
   }
 
   L.push("## Backtest (Phase 2 tool, last 24 h)", "");
@@ -147,18 +201,24 @@ export function renderStatus(o: { report: any; health: any; deploy: any; backtes
     L.push("");
   }
 
+  if (o.markets?.length) {
+    L.push("## Cross-market comparison (last 24 h)", "");
+    L.push(...renderMarketsHealth(o.marketsHealth));
+    L.push(...renderCompare(o.markets));
+  }
+
   L.push("## Day by day (finished UTC days)", "");
   L.push(...renderDays(o.days ?? []));
 
   if (o.agent) L.push("## Server (agent run)", "", "```", o.agent.trim(), "```", "");
 
   L.push("## Files", "");
-  L.push("- `report.txt`: the full analyzer report", "- `report.json`: the same, machine-readable", "- `health.json`: raw recorder health", "- `deploy.json`: last deploy", "- `recorder.log`: last 300 lines of the recorder log", "- `service.txt`: systemd status of the recorder and the agent timer", "- `backtest.txt` / `backtest.json`: the backtest report", "- `days/`: each finished day's analysis and backtest", "- `survey.txt` / `survey.json`: which Kuru markets trade, refreshed daily", "- `agent.txt`: the last agent run (disk, step timings, errors)", "");
+  L.push("- `report.txt`: the full analyzer report", "- `report.json`: the same, machine-readable", "- `health.json`: raw recorder health", "- `deploy.json`: last deploy", "- `recorder.log`: last 300 lines of the recorder log", "- `service.txt`: systemd status of the recorder and the agent timer", "- `backtest.txt` / `backtest.json`: the backtest report", "- `days/`: each finished day's analysis and backtest (`days/<market>/` for the extra markets)", "- `markets/`: the extra markets' last 24 h analysis and backtest", "- `markets-health.json`: raw health of the extra markets' recorder", "- `survey.txt` / `survey.json`: which Kuru markets trade, refreshed daily", "- `agent.txt`: the last agent run (disk, step timings, errors)", "");
   return L.join("\n");
 }
 
 if (import.meta.main) {
-  const { values: a } = parseArgs({ options: { report: { type: "string" }, health: { type: "string" }, deploy: { type: "string" }, backtest: { type: "string" }, "days-dir": { type: "string" }, agent: { type: "string" } } });
+  const { values: a } = parseArgs({ options: { report: { type: "string" }, health: { type: "string" }, deploy: { type: "string" }, backtest: { type: "string" }, "days-dir": { type: "string" }, "markets-dir": { type: "string" }, "markets-health": { type: "string" }, agent: { type: "string" } } });
   const read = async (p?: string) => { if (!p) return null; try { return JSON.parse(await Bun.file(p).text()); } catch { return null; } };
   const [report, health, deploy, backtest] = await Promise.all([read(a.report), read(a.health), read(a.deploy), read(a.backtest)]);
   const days: DayResult[] = [];
@@ -170,5 +230,15 @@ if (import.meta.main) {
     }
   }
   const agent = a.agent && (await Bun.file(a.agent).exists()) ? await Bun.file(a.agent).text() : null;
-  process.stdout.write(renderStatus({ report, health, deploy, backtest, days, agent, now: new Date() }));
+  // the control market first, then each extra market (markets/<slug>.report.json and .backtest.json)
+  const markets: MarketResult[] = [];
+  if (a["markets-dir"]) {
+    markets.push({ name: "MON/USDC (control)", report, backtest });
+    for (const n of [...new Bun.Glob("*.report.json").scanSync(a["markets-dir"])].sort()) {
+      const slug = n.replace(".report.json", "");
+      const r = await read(`${a["markets-dir"]}/${n}`);
+      markets.push({ name: r?.pair ?? slug, report: r, backtest: await read(`${a["markets-dir"]}/${slug}.backtest.json`) });
+    }
+  }
+  process.stdout.write(renderStatus({ report, health, deploy, backtest, days, markets, marketsHealth: await read(a["markets-health"]), agent, now: new Date() }));
 }

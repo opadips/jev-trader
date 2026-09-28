@@ -41,7 +41,23 @@ export interface TradeSummary {
   lastSide: "buy" | "sell" | null;
 }
 
-interface RawLog { blockNumber: string; logIndex: string; transactionHash: string; data: string; removed?: boolean }
+export interface RawLog { address?: string; blockNumber: string; logIndex: string; transactionHash: string; data: string; removed?: boolean }
+
+/**
+ * One Trade log to a print (null for zero-size or malformed logs). 0 orderId, 1 makerAddress,
+ * 2 isBuy, 3 price, 4 updatedSize, 5 takerAddress, 6 txOrigin, 7 filledSize.
+ */
+export function decodeTradePrint(log: RawLog, sizeDec: number, priceDec = 18): TradePrint | null {
+  const data = log.data.startsWith("0x") ? log.data.slice(2) : log.data;
+  if (data.length < 64 * 8) return null;
+  const word = (i: number) => BigInt("0x" + data.slice(i * 64, (i + 1) * 64));
+  const size = toFloat(word(7), sizeDec);
+  if (size === 0) return null;
+  return {
+    block: parseInt(log.blockNumber, 16), price: toFloat(word(3), priceDec), size, side: word(2) !== 0n ? "buy" : "sell",
+    tx: log.transactionHash, logIndex: parseInt(log.logIndex, 16), maker: "0x" + data.slice(64 + 24, 128), taker: "0x" + data.slice(5 * 64 + 24, 6 * 64), orderId: Number(word(0)),
+  };
+}
 
 /** Trade.price is a 1e18 fixed-point number on every Kuru market. */
 export const TRADE_PRICE_DEC = 18;
@@ -115,26 +131,15 @@ export class TradeFeed {
   }
 
   private decode(log: RawLog, collectFills: boolean): TradePrint | null {
-    const data = log.data.startsWith("0x") ? log.data.slice(2) : log.data;
-    if (data.length < 64 * 8) return null;
-    const word = (i: number) => BigInt("0x" + data.slice(i * 64, (i + 1) * 64));
-    // 0 orderId, 1 makerAddress, 2 isBuy, 3 price, 4 updatedSize, 5 takerAddress, 6 txOrigin, 7 filledSize
-    const isBuy = word(2) !== 0n;
-    const price = toFloat(word(3), this.priceDec);
-    const size = toFloat(word(7), this.sizeDec);
-    if (size === 0) return null;
-    const block = parseInt(log.blockNumber, 16);
-    const maker = "0x" + data.slice(64 + 24, 128);
-    if (collectFills && this.maker && maker === this.maker) {
+    const t = decodeTradePrint(log, this.sizeDec, this.priceDec);
+    if (t && collectFills && this.maker && t.maker === this.maker) {
+      const data = log.data.startsWith("0x") ? log.data.slice(2) : log.data;
       this.fills.push({
-        block, txHash: log.transactionHash, orderId: Number(word(0)), price, size,
-        updatedSize: toFloat(word(4), this.sizeDec), side: isBuy ? "sell" : "buy",
+        block: t.block, txHash: log.transactionHash, orderId: t.orderId, price: t.price, size: t.size,
+        updatedSize: toFloat(BigInt("0x" + data.slice(4 * 64, 5 * 64)), this.sizeDec), side: t.side === "buy" ? "sell" : "buy",
       });
     }
-    return {
-      block, price, size, side: isBuy ? "buy" : "sell",
-      tx: log.transactionHash, logIndex: parseInt(log.logIndex, 16), maker, taker: "0x" + data.slice(5 * 64 + 24, 6 * 64), orderId: Number(word(0)),
-    };
+    return t;
   }
 
   summary(lastBlocks: number, currentBlock: number): TradeSummary {

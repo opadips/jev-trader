@@ -22,7 +22,8 @@ import { lowerBound, mean } from "./stats";
 
 const bps = (a: number, b: number) => ((a - b) / b) * 10_000;
 
-export interface Costs { latencyBlocks: number; gasMon: number; takerFeeBps: number; makerFeeBps: number; tick: number }
+/** `monUsd`: the MON price used for gas; omitted for markets priced in MON (their mid is the MON price). */
+export interface Costs { latencyBlocks: number; gasMon: number; takerFeeBps: number; makerFeeBps: number; tick: number; monUsd?: number }
 export const DEFAULT_COSTS: Costs = { latencyBlocks: 1, gasMon: 0.036, takerFeeBps: 0, makerFeeBps: 0, tick: 1e-6 };
 
 export interface Result {
@@ -68,7 +69,7 @@ export function walk(levels: [number, number][], size: number) {
 class Account {
   cash = 0; inv = 0; gasUsd = 0; feesUsd = 0; txs = 0; fills = 0; volume = 0;
   peak = 0; maxDd = 0; maxInv = 0;
-  tx(mid: number, c: Costs) { this.txs++; const g = c.gasMon * mid; this.gasUsd += g; this.cash -= g; }
+  tx(mid: number, c: Costs) { this.txs++; const g = c.gasMon * (c.monUsd ?? mid); this.gasUsd += g; this.cash -= g; }
   trade(qty: number, price: number, feeBps: number) {
     this.inv += qty; this.cash -= qty * price; this.fills++; this.volume += Math.abs(qty);
     const fee = (Math.abs(qty) * price * feeBps) / 10_000; this.feesUsd += fee; this.cash -= fee;
@@ -108,20 +109,20 @@ export interface LagParams {
   /** Enter when fair value is this many bps beyond the touch (buy below fair, sell above). */
   thresholdBps: number;
   sizeMon: number;
-  /** Exit after this many rows at the latest, or earlier once the remaining edge is below `exitBps`. */
-  holdRows: number;
+  /** Exit after this many blocks at the latest, or earlier once the remaining edge is below `exitBps`. */
+  holdBlocks: number;
   exitBps: number;
   cooldownRows: number;
   basisRows: number;
   /** Optional Jev filter: skip entries the latest forecast leans against by more than this. */
   jev?: { preds: PredictionRow[]; maxAgeBlocks: number; minAgreement: number };
 }
-export const LAG_DEFAULTS: LagParams = { thresholdBps: 4, sizeMon: 1000, holdRows: 33, exitBps: 0.5, cooldownRows: 5, basisRows: 1000 };
+export const LAG_DEFAULTS: LagParams = { thresholdBps: 4, sizeMon: 1000, holdBlocks: 33, exitBps: 0.5, cooldownRows: 5, basisRows: 1000 };
 
 /**
  * When the reference says Kuru is cheap (dear) by more than the threshold, buy the ask (sell the
  * bid) with a taker order that lands a block later at whatever the book then offers; close with
- * another taker order once Kuru has caught up or after `holdRows`. One position at a time.
+ * another taker order once Kuru has caught up or after `holdBlocks`. One position at a time.
  */
 export function lagTaker(books: BookRow[], p: Partial<LagParams> = {}, costs: Costs = DEFAULT_COSTS, fair = fairValues(books, p.basisRows ?? LAG_DEFAULTS.basisRows)): Result {
   const o = { ...LAG_DEFAULTS, ...p };
@@ -152,7 +153,7 @@ export function lagTaker(books: BookRow[], p: Partial<LagParams> = {}, costs: Co
       continue;
     }
     const remaining = Number.isFinite(f) ? (pos > 0 ? bps(f, b.mid) : bps(b.mid, f)) : 0;
-    if (t - entryRow < o.holdRows && remaining > o.exitBps) continue;
+    if (b.block - books[entryRow]!.block < o.holdBlocks && remaining > o.exitBps) continue;
     const j = landing(books, t, costs.latencyBlocks);
     if (j < 0) break;
     const land = books[j]!;

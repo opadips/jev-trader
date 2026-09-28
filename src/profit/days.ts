@@ -4,11 +4,13 @@
  *
  *   bun run src/profit/days.ts
  */
+import { parseArgs } from "node:util";
 import { profit } from "./config";
 import { Store } from "./db";
 
-if (await Bun.file(profit.dbPath).exists()) {
-  const store = new Store(profit.dbPath, { readonly: true });
+const { values: args } = parseArgs({ options: { db: { type: "string", default: profit.dbPath } } });
+if (await Bun.file(args.db!).exists()) {
+  const store = new Store(args.db!, { readonly: true });
   const today = new Date().toISOString().slice(0, 10);
   for (const d of store.days()) if (d.day < today) console.log(d.day);
   store.close();

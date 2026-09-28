@@ -19,6 +19,7 @@ const { values: args } = parseArgs({
     day: { type: "string" },
     "gas-mon": { type: "string", default: String(DEFAULT_COSTS.gasMon) },
     "latency-blocks": { type: "string", default: String(DEFAULT_COSTS.latencyBlocks) },
+    "mon-usd": { type: "string" },
     "json-out": { type: "string" },
   },
 });
@@ -45,8 +46,25 @@ const trades = store.trades(books[0]!.block, books.at(-1)!.block);
 const allPreds = store.predictions({ fromBlock: books[0]!.block });
 const latestModel = allPreds.at(-1)?.model;
 const preds = allPreds.filter((p) => p.model === latestModel && !p.error);
-const meta = store.meta() as { market?: { takerFeeBps: number; makerFeeBps: number; tickSize: string; pricePrecision: string } };
+const meta = store.meta() as { market?: { takerFeeBps: number; makerFeeBps: number; tickSize: string; pricePrecision: string; sizePrecision: string; minSize: string; reference?: string; sampleEvery?: number } };
+// the fair-value basis stays 1,000 blocks on markets sampled every few blocks
+const basisRows = Math.round(1000 / (meta.market?.sampleEvery ?? 1));
 store.close();
+
+// Gas is paid in MON: markets priced in MON use their own mid; others use the control's last MON price.
+const monBased = !meta.market?.reference || meta.market.reference === "MON";
+let monUsd: number | undefined;
+if (args["mon-usd"]) monUsd = Number(args["mon-usd"]);
+else if (!monBased && (await Bun.file(profit.dbPath).exists())) {
+  const c = new Store(profit.dbPath, { readonly: true });
+  const t = c.lastTs();
+  monUsd = t === null ? undefined : c.books({ fromTs: t, lite: true }).at(-1)?.mid;
+  c.close();
+}
+
+/** Order sizes are set in USD so markets compare ($5 is about Kuru's 200 MON minimum at $0.026), never below the market's minimum. */
+const minSize = meta.market?.minSize && meta.market.sizePrecision ? Number(meta.market.minSize) / Number(meta.market.sizePrecision) : 0;
+const sizeFor = (usd: number) => Math.max(usd / books[0]!.mid, minSize);
 
 const m = meta.market;
 const costs: Costs = {
@@ -55,10 +73,11 @@ const costs: Costs = {
   takerFeeBps: m?.takerFeeBps ?? 0,
   makerFeeBps: m?.makerFeeBps ?? 0,
   tick: m?.tickSize && m?.pricePrecision ? Number(m.tickSize) / Number(m.pricePrecision) : DEFAULT_COSTS.tick,
+  monUsd,
 };
 
 const { train, test } = splitByTime(books);
-const fair = { train: fairValues(train), test: fairValues(test) };
+const fair = { train: fairValues(train, basisRows), test: fairValues(test, basisRows) };
 const tradesIn = (rows: typeof books) => { const lo = rows[0]!.block, hi = rows.at(-1)!.block; return trades.filter((t) => t.block >= lo && t.block <= hi); };
 const tr = { train: tradesIn(train), test: tradesIn(test) };
 
@@ -67,17 +86,20 @@ const families: Family[] = [
   {
     name: "take the lag",
     // Day 1: only gaps of 10 to 20+ bps paid, and gas per tx is fixed, so large sizes matter.
-    variants: grid<Record<string, unknown>>({ thresholdBps: [5, 8, 12, 16, 20, 30], sizeMon: [200, 2000, 10000], holdRows: [3, 10, 33], jev: preds.length ? [false, true] : [false] }),
+    variants: grid<Record<string, unknown>>({ thresholdBps: [5, 8, 12, 16, 20, 30], sizeUsd: [5, 50, 250], holdBlocks: [3, 10, 33], jev: preds.length ? [false, true] : [false] }),
     run: (rows, part, v) => lagTaker(rows, {
-      ...(v as Partial<LagParams>),
+      thresholdBps: v.thresholdBps as number, holdBlocks: v.holdBlocks as number, sizeMon: sizeFor(v.sizeUsd as number),
       jev: v.jev ? { preds, maxAgeBlocks: 60, minAgreement: 0.2 } : undefined,
     }, costs, fair[part]),
   },
   {
     name: "quote around a fair price",
     // Day 1: tight quotes were picked off (negative before gas) and re-quoting burned gas; try wider and calmer.
-    variants: grid<Record<string, unknown>>({ useReference: [true, false], halfSpreadBps: [2, 3, 5, 8, 12], sizeMon: [200, 2000], requoteBps: [2, 4, 8] }),
-    run: (rows, part, v) => refMaker(rows, tr[part], v as Partial<MakerParams>, costs, fair[part]),
+    variants: grid<Record<string, unknown>>({ useReference: [true, false], halfSpreadBps: [2, 3, 5, 8, 12], sizeUsd: [5, 50], requoteBps: [2, 4, 8] }),
+    run: (rows, part, v) => {
+      const size = sizeFor(v.sizeUsd as number);
+      return refMaker(rows, tr[part], { useReference: v.useReference as boolean, halfSpreadBps: v.halfSpreadBps as number, requoteBps: v.requoteBps as number, sizeMon: size, maxInventoryMon: 25 * size }, costs, fair[part]);
+    },
   },
 ];
 
@@ -112,7 +134,7 @@ const pct = (x: number) => (Number.isFinite(x) ? `${(x * 100).toFixed(0)}%` : "n
 const show = (v: Record<string, unknown>) => Object.entries(v).map(([k, x]) => `${k}=${x}`).join(" ");
 const L: string[] = [];
 L.push(`Backtest (${win.label}) over ${books.length} rows: tuned on the first ${f(report.hours.train, 1)} h, tested on the last ${f(report.hours.test, 1)} h.`);
-L.push(`Costs: ${costs.latencyBlocks} block latency, ${costs.gasMon} MON gas per tx, fees ${costs.takerFeeBps}/${costs.makerFeeBps} bps (taker/maker). Jev forecasts: ${preds.length ? `${preds.length} from ${latestModel}` : "none"}.`);
+L.push(`Costs: ${costs.latencyBlocks} block latency, ${costs.gasMon} MON gas per tx${monUsd ? ` (MON at $${monUsd.toFixed(4)})` : ""}, fees ${costs.takerFeeBps}/${costs.makerFeeBps} bps (taker/maker). Jev forecasts: ${preds.length ? `${preds.length} from ${latestModel}` : "none"}.`);
 for (const fam of report.families) {
   const c = fam.chosen;
   L.push("", `== ${fam.name} (${fam.variants} variants, ${fam.variantsPositiveOnTest} positive on the test period)`);

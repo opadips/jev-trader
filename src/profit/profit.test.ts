@@ -78,7 +78,8 @@ describe("store", () => {
     expect(s.count("books")).toBe(books.length);
     expect(s.books()[5]).toEqual(books[5]!);
     expect(s.books({ fromTs: books[10]!.ts }).length).toBe(books.length - 10);
-    expect(s.books({ lite: true })[5]!.depth).toEqual({});
+    expect(s.books({ lite: true })[5]!.depth).toEqual(books[5]!.depth);
+    expect(s.books({ lite: true })[5]!.bids).toEqual(books[5]!.bids.slice(0, 1));
     expect(s.lastTs()).toBe(books.at(-1)!.ts);
     expect(s.trades()).toEqual(trades);
     expect(s.predictions({ model: "synthetic", withState: true })[0]).toEqual(preds[0]!);
@@ -130,13 +131,24 @@ describe("analysis", () => {
     expect(c.venueFresh.sim).toBe(1);
   });
 
+  test("coverage of a market sampled every 2 blocks counts expected samples", () => {
+    const sampled = books.slice(0, 100).map((b, i) => ({ ...b, block: b.block + i })).filter((_, i) => i !== 50);
+    const c = coverage(sampled, 2)!;
+    expect(c.blockCoverage).toBeCloseTo(99 / 100, 6);
+    expect(c.gaps).toBe(1);
+    expect(c.missingBlocks).toBe(2);
+    expect(coverage(sampled)!.blockCoverage).toBeCloseTo(99 / 199, 6);
+  });
+
   test("lead-lag finds the planted lag and full catch-up", () => {
     const ll = leadLag(books);
     expect(ll.best!.lag).toBe(3);
     expect(ll.best!.corr).toBeGreaterThan(0.9);
-    const late = ll.catchUp.find((x) => x.rows === 10)!;
+    const late = ll.catchUp.find((x) => x.afterBlocks === 10)!;
     expect(late.beta).toBeGreaterThan(0.9);
-    expect(ll.catchUp.find((x) => x.rows === 1)!.beta).toBeLessThan(0.2);
+    expect(ll.catchUp.find((x) => x.afterBlocks === 1)!.beta).toBeLessThan(0.2);
+    expect(ll.blocksPerRow).toBe(1);
+    expect(ll.best!.lagBlocks).toBe(3);
   });
 
   test("maker markouts: capture is half the spread; uninformed flow means ~no adverse move", () => {
@@ -148,21 +160,21 @@ describe("analysis", () => {
   });
 
   test("taker arb profits when Kuru lags, and not when it does not", () => {
-    const lagged = takerArb(books, { thresholdsBps: [5], horizon: 10, takerFeeBps: 0, gasBps: 0 })[0]!;
+    const lagged = takerArb(books, { thresholdsBps: [5], horizonBlocks: 10, takerFeeBps: 0, gasBps: 0 })[0]!;
     expect(lagged.trades).toBeGreaterThan(20);
     expect(lagged.netBps).toBeGreaterThan(0);
     const { books: sync } = synth({ rows: 6000, lag: 0 });
-    const none = takerArb(sync, { thresholdsBps: [5], horizon: 10, takerFeeBps: 0, gasBps: 0 })[0]!;
+    const none = takerArb(sync, { thresholdsBps: [5], horizonBlocks: 10, takerFeeBps: 0, gasBps: 0 })[0]!;
     expect(none.trades).toBe(0);
   });
 
   test("taker arb pays gas and fees on both legs, and splits by day", async () => {
     const { takerArbByDay } = await import("./analysis");
-    const free = takerArb(books, { thresholdsBps: [5], horizon: 10, takerFeeBps: 0, gasBps: 0 })[0]!;
-    const costly = takerArb(books, { thresholdsBps: [5], horizon: 10, takerFeeBps: 0.5, gasBps: 1 })[0]!;
+    const free = takerArb(books, { thresholdsBps: [5], horizonBlocks: 10, takerFeeBps: 0, gasBps: 0 })[0]!;
+    const costly = takerArb(books, { thresholdsBps: [5], horizonBlocks: 10, takerFeeBps: 0.5, gasBps: 1 })[0]!;
     expect(costly.trades).toBe(free.trades);
     expect(free.netBps - costly.netBps).toBeCloseTo(3, 9); // 2 x (0.5 + 1)
-    const byDay = takerArbByDay(books, { thresholdsBps: [5], horizon: 10, takerFeeBps: 0, gasBps: 0 }, 100);
+    const byDay = takerArbByDay(books, { thresholdsBps: [5], horizonBlocks: 10, takerFeeBps: 0, gasBps: 0 }, 100);
     expect(byDay.length).toBe(1);
     expect(byDay[0]!.results[0]!.trades).toBe(free.trades);
   });
@@ -229,7 +241,7 @@ describe("status page", () => {
     market: { spreadBps: { p50: 6 }, printsPerHour: 100, usdPerHour: 5000, distinctTakers: 4, distinctMakers: 3 },
     makerMarkouts: [{ horizon: 33, n: 500, netBps: 1.0 }],
     takerArb: [{ thresholdBps: 5, trades: 40, perHour: 2, netBps: 1.5, hitRate: 0.6 }],
-    leadLag: { best: { lag: 3, corr: 0.4 }, catchUp: [{ rows: 10, beta: 0.8 }] },
+    leadLag: { best: { lag: 3, lagBlocks: 3, corr: 0.4 }, catchUp: [{ afterBlocks: 10, blocks: 10, beta: 0.8 }] },
     forecasts: { models: { jev: { logLoss: 0.9, directional: [{ threshold: 0.2, n: 50, meanSignedBps: 20 }] }, prior: { logLoss: 1.0 }, logistic: { logLoss: 0.95 } } },
   };
 
@@ -270,6 +282,33 @@ describe("status page", () => {
       backtest: { hours: { train: 14.4, test: 9.6 }, costs: { latencyBlocks: 1, gasMon: 0.036 }, families: [{ name: "take the lag", variants: 48, variantsPositiveOnTest: 3, chosen: { variant: { thresholdBps: 5, sizeMon: 1000 }, train: { pnlPerHourUsd: 0.12 }, test: { pnlPerHourUsd: 0.05, txs: 40, fills: 40 } } }] },
     });
     expect(withBt).toContain("| take the lag | thresholdBps=5, sizeMon=1000 | 0.120 | **0.050** | 40 txs, 40 fills | 3 of 48 |");
+  });
+
+  test("cross-market tables and the markets recorder health", async () => {
+    const { renderCompare, renderMarketsHealth, renderStatus } = await import("./status");
+    expect(renderCompare([{ name: "X", report: null, backtest: null }])[0]).toContain("No market has enough data");
+    const r = {
+      ...base, costs: { ...base.costs, gasUsdPerTx: 0.001, gasBpsPerTx: 2 },
+      market: { ...base.market, spreadBps: { p10: 1, p50: 2, p90: 4 }, usdPerHour: 324_000, printsPerHour: 1036, medianMid: 100, touchMon: { bid: 10, ask: 20 }, depthQuote: { "10": 167_000 } },
+      leadLag: { best: { lagBlocks: 2, corr: 0.3 }, catchUp: [1, 3, 5, 10, 20].map((h) => ({ afterBlocks: h, blocks: h === 1 ? 2 : h, beta: h / 20 })) },
+      takerArb: [{ thresholdBps: 10, trades: 60, perHour: 3, netBps: -1, hitRate: 0.4 }, { thresholdBps: 20, trades: 20, perHour: 1, grossBps: 9, netBps: 5, hitRate: 0.6 }],
+      makerMarkouts: [{ horizon: 33, captureBps: 1, adverseBps: 1.5, netBps: -0.5 }],
+    };
+    const bt = { families: [
+      { name: "take the lag", variants: 3, variantsPositiveOnTest: 1, chosen: { test: { pnlPerHourUsd: -0.01 } }, all: [[{ sizeUsd: 5 }, 0, 0.02, 1], [{ sizeUsd: 5 }, 0, -0.1, 1], [{ sizeUsd: 50 }, 0, -0.3, 1]] },
+      { name: "quote around a fair price", variants: 2, variantsPositiveOnTest: 0, chosen: { test: { pnlPerHourUsd: -0.2 } }, all: [] },
+    ] };
+    const rows = renderCompare([{ name: "cbBTC/USDC", report: r, backtest: bt }]);
+    expect(rows).toContain("| cbBTC/USDC | 324k | 1036 | 2.00 (1.00 / 4.00) | 3k | 167k | 95% | 2 (0.300) | 0.05@2 / 0.15 / 0.25 / 0.50 / 1.00 | 0.0010, 2.00 |");
+    expect(rows).toContain("| cbBTC/USDC | 3.0 / 1.0 | 9.00 | -1.00 (40%) / 5.00 (60%) | 1.00 - 1.50 = -0.50 | 0.020 / -0.300 / n/a | -0.010 (1/3) / -0.200 (0/2) |");
+
+    expect(renderMarketsHealth(null)[0]).toContain("no health response");
+    const h = renderMarketsHealth({ ok: true, uptimeS: 3600, sampleEvery: 2, stats: { samples: 10, skipped: 0, requestErrors: 1, logErrors: 0 },
+      markets: [{ pair: "WETH/USDC", rows: 9, prints: 4, readErrors: 0, lastBookAgeMs: 1500, lastSpreadBps: 1.9, venues: [{ venue: "okx", live: true }, { venue: "bybit", live: false }] }] });
+    expect(h).toContain("| WETH/USDC | 9 | 4 | 0 | 1.5 s ago | 1.9 | okx |");
+    const page = renderStatus({ report: base, health: null, deploy: null, now: new Date(0), markets: [{ name: "MON/USDC (control)", report: base, backtest: null }] });
+    expect(page).toContain("## Cross-market comparison");
+    expect(page).toContain("Markets recorder: no health response");
   });
 });
 
@@ -313,6 +352,14 @@ describe("backtest", () => {
     expect(r.endInventoryMon).toBeCloseTo(50, 6);
   });
 
+  test("gas uses the MON price when the market is not priced in MON", async () => {
+    const { refMaker } = await import("./backtest");
+    const btcLike = flat(10, () => ({ bid: 99_990, ask: 100_010, mid: 100_000, bids: [[99_990, 1]] as [number, number][], asks: [[100_010, 1]] as [number, number][] }));
+    const r = refMaker(btcLike, [], { ...maker, sizeMon: 0.01, halfSpreadBps: 1 }, { ...costs, tick: 1, gasMon: 0.036, monUsd: 0.026 });
+    expect(r.txs).toBe(1);
+    expect(r.gasUsd).toBeCloseTo(0.036 * 0.026, 9);
+  });
+
   test("gas is charged per transaction at the landing row's mid", async () => {
     const { refMaker } = await import("./backtest");
     const r = refMaker(flat(10), [], { ...maker, halfSpreadBps: 1 }, { ...costs, gasMon: 0.5 });
@@ -324,7 +371,7 @@ describe("backtest", () => {
   test("lag taker profits only when Kuru lags, and gas can eat it", async () => {
     const { lagTaker } = await import("./backtest");
     const lagged = synth({ rows: 6000, lag: 3, stepBps: 4, spreadBps: 2 }).books;
-    const p = { thresholdBps: 3, sizeMon: 500, holdRows: 10, exitBps: 0.5 };
+    const p = { thresholdBps: 3, sizeMon: 500, holdBlocks: 10, exitBps: 0.5 };
     const free = lagTaker(lagged, p, { ...costs, tick: 1e-6 });
     expect(free.txs).toBeGreaterThan(50);
     expect(free.pnlUsd).toBeGreaterThan(0);
@@ -339,7 +386,7 @@ describe("backtest", () => {
     const { lagTaker } = await import("./backtest");
     const { books } = synth({ rows: 6000, lag: 3, stepBps: 4, spreadBps: 2 });
     const bearish = books.map((b) => ({ block: b.block, ts: b.ts, model: "m", horizon: 100, flatBps: 5, pUp: 0, pDown: 1, pFlat: 0, choice: "down", confidence: null, latencyMs: 0, inputTokens: 0, state: null, error: null }));
-    const p = { thresholdBps: 3, sizeMon: 500, holdRows: 10 };
+    const p = { thresholdBps: 3, sizeMon: 500, holdBlocks: 10 };
     const all = lagTaker(books, p, { ...costs, tick: 1e-6 });
     const filtered = lagTaker(books, { ...p, jev: { preds: bearish, maxAgeBlocks: 60, minAgreement: 0.2 } }, { ...costs, tick: 1e-6 });
     expect(filtered.txs).toBeLessThan(all.txs); // no longs left
@@ -351,6 +398,19 @@ describe("backtest", () => {
     expect(grid({ a: [1, 2], b: ["x", "y", "z"] }).length).toBe(6);
     const s = splitByTime(flat(10), 0.4);
     expect([s.train.length, s.test.length]).toEqual([6, 4]);
+  });
+});
+
+describe("trade logs", () => {
+  test("decodeTradePrint reads a raw Trade log", async () => {
+    const { decodeTradePrint } = await import("../trades");
+    const w = (x: bigint | string) => (typeof x === "string" ? x.slice(2).padStart(64, "0") : x.toString(16).padStart(64, "0"));
+    const maker = "0x" + "aa".repeat(20), taker = "0x" + "bb".repeat(20);
+    const data = "0x" + [w(7n), w(maker), w(1n), w(95_000n * 10n ** 18n), w(0n), w(taker), w(taker), w(25n * 10n ** 6n)].join("");
+    const p = decodeTradePrint({ address: "0x40c4", blockNumber: "0x10", logIndex: "0x2", transactionHash: "0xabc", data }, 8);
+    expect(p).toEqual({ block: 16, price: 95_000, size: 0.25, side: "buy", tx: "0xabc", logIndex: 2, maker, taker, orderId: 7 });
+    expect(decodeTradePrint({ blockNumber: "0x1", logIndex: "0x0", transactionHash: "0x", data: "0x" + [w(1n), w(maker), w(0n), w(1n), w(0n), w(taker), w(taker), w(0n)].join("") }, 8)).toBeNull();
+    expect(decodeTradePrint({ blockNumber: "0x1", logIndex: "0x0", transactionHash: "0x", data: "0x00" }, 8)).toBeNull();
   });
 });
 

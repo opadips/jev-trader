@@ -5,7 +5,8 @@
  *   bun run scripts/fake-rpc.ts 8545
  *   RPC_URL=http://127.0.0.1:8545 READ_RPC_URL=http://127.0.0.1:8545 WS_URL= bun run record
  *
- * FAKE_BLOCK_MS=20 makes blocks come faster (soak tests); FAKE_LOGS=1 returns one Trade log per block.
+ * FAKE_BLOCK_MS=20 makes blocks come faster (soak tests); FAKE_LOGS=1 returns one Trade log per block
+ * for each address in the getLogs filter (the MON-USDC market when there is none).
  */
 import { ethers } from "ethers";
 import OrderBookAbi from "@kuru-labs/kuru-sdk/abi/OrderBook.json";
@@ -16,14 +17,15 @@ const PRICE_DEC = 8, SIZE_DEC = 10;
 let block = 100_000_000, mid = 0.0226;
 setInterval(() => { block++; mid *= 1 + (Math.random() - 0.5) * 4e-4; }, Number(process.env.FAKE_BLOCK_MS ?? 300));
 
-/** One Trade log per block: Trade(orderId, maker, isBuy, price 1e18, updatedSize, taker, txOrigin, filledSize). */
-function tradeLogs(from: number, to: number) {
+/** One Trade log per block and market: Trade(orderId, maker, isBuy, price 1e18, updatedSize, taker, txOrigin, filledSize). */
+function tradeLogs(from: number, to: number, address?: string | string[]) {
   if (!process.env.FAKE_LOGS) return [];
   const out = [];
-  for (let b = from; b <= Math.min(to, block); b++) {
+  const markets = address ? [address].flat() : ["0x065c9d28e428a0db40191a54d33d5b7c71a9c394"];
+  for (let b = from; b <= Math.min(to, block); b++) for (const market of markets) {
     const addr = (n: number) => word(BigInt(n));
     const data = "0x" + word(BigInt(b)) + addr(0xaa) + word(BigInt(b % 2)) + word(BigInt(Math.round(mid * 1e6)) * 10n ** 12n) + word(0n) + addr(0xbb) + addr(0xbb) + word(units(500 + (b % 7) * 100, SIZE_DEC));
-    out.push({ address: "0x065c9d28e428a0db40191a54d33d5b7c71a9c394", blockNumber: "0x" + b.toString(16), logIndex: "0x0", transactionHash: "0x" + b.toString(16).padStart(64, "0"), data, removed: false });
+    out.push({ address: market, blockNumber: "0x" + b.toString(16), logIndex: "0x0", transactionHash: "0x" + b.toString(16).padStart(64, "0"), data, removed: false });
   }
   return out;
 }
@@ -52,7 +54,7 @@ function handle(req: { id: number; method: string; params: any[] }) {
     case "net_version": return ok("143");
     case "eth_blockNumber": return ok("0x" + block.toString(16));
     case "eth_getBlockByNumber": return ok({ number: req.params[0], timestamp: "0x" + Math.floor(parseInt(req.params[0], 16) * 0.3).toString(16) });
-    case "eth_getLogs": return ok(tradeLogs(parseInt(req.params[0].fromBlock, 16), parseInt(req.params[0].toBlock, 16)));
+    case "eth_getLogs": return ok(tradeLogs(parseInt(req.params[0].fromBlock, 16), parseInt(req.params[0].toBlock, 16), req.params[0].address));
     case "eth_call": {
       const sel = String(req.params[0].data).slice(0, 10);
       if (sel === "0x46fdfbb1") return ok(l2Book());

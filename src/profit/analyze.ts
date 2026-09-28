@@ -8,7 +8,9 @@
  *   bun run analyze --json-out report.json  # text on stdout and JSON to a file, one pass
  *   bun run analyze --db path --gas-mon 0.036 --order-mon 200
  *
- * Gas is expressed in bps of one order's notional (gas MON / order MON), so it does not depend on price.
+ * Gas is expressed in bps of one order's USD notional (`--order-usd`, default $5, about 200 MON at
+ * $0.026): gas MON x MON price / order USD. For markets not priced in MON, the MON price comes from
+ * the control recording (`--mon-usd` overrides).
  */
 import { parseArgs } from "node:util";
 import { profit } from "./config";
@@ -21,7 +23,8 @@ const { values: args } = parseArgs({
     hours: { type: "string", default: "72" },
     day: { type: "string" },
     "gas-mon": { type: "string", default: "0.036" },
-    "order-mon": { type: "string", default: "200" },
+    "order-usd": { type: "string", default: "5" },
+    "mon-usd": { type: "string" },
     json: { type: "boolean", default: false },
     "json-out": { type: "string" },
   },
@@ -34,7 +37,10 @@ if (!(await Bun.file(args.db!).exists())) {
   process.exit(0);
 }
 const store = new Store(args.db!, { readonly: true });
-const meta = store.meta() as { market?: { takerFeeBps: number; makerFeeBps: number } };
+const meta = store.meta() as { market?: { takerFeeBps: number; makerFeeBps: number; pair?: string; reference?: string; sampleEvery?: number } };
+// Sampled markets keep a book every `sampleEvery` blocks; windows stay the same in blocks (the fair-value basis is 1,000 blocks).
+const sampleEvery = meta.market?.sampleEvery ?? 1;
+const basisRows = Math.round(1000 / sampleEvery);
 const win = timeWindow({ hours: args.hours, day: args.day }, store.lastTs());
 const books = store.books({ fromTs: win.fromTs, toTs: win.toTs, lite: true });
 if (books.length < 200) {
@@ -49,17 +55,30 @@ const allPreds = store.predictions({ fromBlock: books[0]!.block });
 const latestModel = allPreds.at(-1)?.model;
 const preds = allPreds.filter((p) => p.model === latestModel);
 const takerFeeBps = meta.market?.takerFeeBps ?? NaN, makerFeeBps = meta.market?.makerFeeBps ?? NaN;
-const gasBps = (Number(args["gas-mon"]) / Number(args["order-mon"])) * 10_000;
+// Gas is paid in MON. The control market (no `reference` in its meta) and MON-based markets price MON themselves.
+const lastMidOf = (path: string) => {
+  const s = new Store(path, { readonly: true });
+  const t = s.lastTs();
+  const m = t === null ? NaN : s.books({ fromTs: t, lite: true }).at(-1)?.mid ?? NaN;
+  s.close();
+  return m;
+};
+const monBased = !meta.market?.reference || meta.market.reference === "MON";
+const monUsd = args["mon-usd"] ? Number(args["mon-usd"]) : monBased ? books.at(-1)!.mid : (await Bun.file(profit.dbPath).exists()) ? lastMidOf(profit.dbPath) : NaN;
+const orderUsd = Number(args["order-usd"]);
+const gasUsdPerTx = Number(args["gas-mon"]) * monUsd;
+const gasBps = (gasUsdPerTx / orderUsd) * 10_000;
 
 const report = {
   window: win.label,
-  costs: { takerFeeBps, makerFeeBps, gasBpsPerTx: gasBps, orderMon: Number(args["order-mon"]) },
-  coverage: coverage(books),
+  pair: meta.market?.pair ?? "MON/USDC",
+  costs: { takerFeeBps, makerFeeBps, gasBpsPerTx: gasBps, gasUsdPerTx, monUsd, orderUsd },
+  coverage: coverage(books, sampleEvery),
   market: marketStats(books, trades),
   makerMarkouts: makerMarkouts(books, trades, [1, 10, 33, 100, 333], makerFeeBps || 0),
   leadLag: leadLag(books),
-  takerArb: takerArb(books, { thresholdsBps: [0, 2, 5, 10, 20, 30], horizon: 33, takerFeeBps: takerFeeBps || 0, gasBps }),
-  takerArbByDay: takerArbByDay(books, { thresholdsBps: [10, 20, 30], horizon: 33, takerFeeBps: takerFeeBps || 0, gasBps }),
+  takerArb: takerArb(books, { thresholdsBps: [0, 2, 5, 10, 20, 30], horizonBlocks: 33, takerFeeBps: takerFeeBps || 0, gasBps, basisRows }),
+  takerArbByDay: takerArbByDay(books, { thresholdsBps: [10, 20, 30], horizonBlocks: 33, takerFeeBps: takerFeeBps || 0, gasBps, basisRows }, Math.round(20_000 / sampleEvery)),
   forecasts: evaluateForecasts(books, trades, preds),
 };
 
@@ -74,15 +93,17 @@ const pct = (x: number | null | undefined) => (x === null || x === undefined || 
 const c = report.coverage!, m = report.market;
 
 console.log(`\n== Coverage (${win.label})`);
-console.log(`${c.rows} rows, blocks ${c.fromBlock}..${c.toBlock}, ${f(c.hours, 1)} h, ${pct(c.blockCoverage)} of blocks recorded (${c.gaps} gaps)`);
+console.log(`${c.rows} rows, blocks ${c.fromBlock}..${c.toBlock}, ${f(c.hours, 1)} h, ${pct(c.blockCoverage)} of ${sampleEvery > 1 ? `expected samples (one book every ${sampleEvery} blocks)` : "blocks"} recorded (${c.gaps} gaps)`);
 console.log(`reference venues fresh: ${Object.entries(c.venueFresh).map(([v, s]) => `${v} ${pct(s)}`).join(", ") || "none"}`);
 
 console.log(`\n== Costs`);
-console.log(`taker fee ${f(takerFeeBps)} bps, maker fee ${f(makerFeeBps)} bps, gas ${f(gasBps)} bps per tx on ${args["order-mon"]} MON`);
+console.log(`taker fee ${f(takerFeeBps)} bps, maker fee ${f(makerFeeBps)} bps, gas $${f(gasUsdPerTx, 4)} per tx = ${f(gasBps)} bps on a $${orderUsd} order`);
 
 console.log(`\n== Market`);
-console.log(`spread p10/p50/p90 ${f(m.spreadBps.p10)} / ${f(m.spreadBps.p50)} / ${f(m.spreadBps.p90)} bps; median touch ${f(m.touchMon.bid, 0)} MON bid, ${f(m.touchMon.ask, 0)} MON ask`);
-console.log(`${f(m.printsPerHour, 0)} prints/h, ${f(m.monPerHour, 0)} MON/h ($${f(m.usdPerHour, 0)}/h), median print ${f(m.medianPrintMon, 0)} MON, taker buys ${pct(m.takerBuyShare)}`);
+const base = report.pair.split("/")[0];
+const qty = (x: number) => f(x, x >= 100 ? 0 : 4);
+console.log(`spread p10/p50/p90 ${f(m.spreadBps.p10)} / ${f(m.spreadBps.p50)} / ${f(m.spreadBps.p90)} bps; median touch ${qty(m.touchMon.bid)} ${base} bid, ${qty(m.touchMon.ask)} ${base} ask ($${f((m.touchMon.bid + m.touchMon.ask) * m.medianMid, 0)} both sides); within 10 bps of mid $${f(m.depthQuote["10"], 0)}`);
+console.log(`${f(m.printsPerHour, 0)} prints/h, ${f(m.monPerHour, 2)} ${base}/h (${f(m.usdPerHour, 0)} in quote units/h), median print ${f(m.medianPrintMon, 4)} ${base}, taker buys ${pct(m.takerBuyShare)}`);
 console.log(`${m.distinctTakers} distinct takers, ${m.distinctMakers} distinct makers; 100-block move std ${f(m.move100BlocksBps)} bps`);
 
 console.log(`\n== Would a resting order pay? (maker P&L after the maker fee, bps of mid)`);
@@ -93,12 +114,12 @@ const ll = report.leadLag;
 console.log(`\n== Does Kuru follow other exchanges?`);
 if (!ll.usableRows) console.log("  no reference data recorded (check REF_VENUES and /health)");
 else {
-  console.log(`  strongest link: reference move at t vs Kuru move at t${ll.best && ll.best.lag >= 0 ? "+" : ""}${ll.best?.lag ?? "?"} rows, corr ${f(ll.best?.corr, 3)}`);
-  console.log(`  share of a reference move Kuru has absorbed after: ${ll.catchUp.map((x) => `${x.rows} rows ${f(x.beta, 2)}`).join(", ")}`);
+  console.log(`  strongest link: reference move at t vs Kuru move at t${ll.best && ll.best.lag >= 0 ? "+" : ""}${ll.best?.lag ?? "?"} rows (${f(ll.best?.lagBlocks, 0)} blocks; one row = ${f(ll.blocksPerRow, 0)} blocks), corr ${f(ll.best?.corr, 3)}`);
+  console.log(`  share of a reference move Kuru has absorbed after: ${ll.catchUp.map((x) => `${x.afterBlocks} blocks${x.blocks !== x.afterBlocks ? ` (measured at ${f(x.blocks, 0)})` : ""} ${f(x.beta, 2)}`).join(", ")}`);
 }
 
-console.log(`\n== Taker arbitrage vs reference (enter a row late, exit at the touch 33 rows later, after 2 fees and 2 gas)`);
-for (const r of report.takerArb) console.log(`  edge > ${String(r.thresholdBps).padStart(2)} bps: ${r.trades} trades (${f(r.perHour, 1)}/h), net ${f(r.netBps)} bps each, win ${pct(r.hitRate)}`);
+console.log(`\n== Taker arbitrage vs reference (enter at the next recorded book, exit at the touch 33 blocks later, after 2 fees and 2 gas)`);
+for (const r of report.takerArb) console.log(`  edge > ${String(r.thresholdBps).padStart(2)} bps: ${r.trades} trades (${f(r.perHour, 1)}/h), gross ${f(r.grossBps)} net ${f(r.netBps)} bps each, win ${pct(r.hitRate)}`);
 console.log(`  by UTC day (does it repeat?):`);
 for (const d of report.takerArbByDay) console.log(`    ${d.day}: ${d.results.map((r) => `>${r.thresholdBps} bps ${r.trades} trades ${f(r.netBps)} bps`).join(", ")}`);
 
