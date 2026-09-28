@@ -108,8 +108,12 @@ Tell the cloud session it is up; it will attach the reports repo and read it fro
 
 - **Status:** the reports repo README, refreshed hourly and after every deploy.
 - **Logs on the server:** `tail -f ~/jev-trader/data/recorder.log`, `systemctl --user status jev-recorder`.
-- **Pause:** `systemctl --user stop jev-agent.timer jev-recorder`. **Resume:** `start` instead of `stop`.
-- **Remove everything:** as `jev`, `systemctl --user disable --now jev-agent.timer jev-recorder`;
+- **Extra markets:** the agent installs, enables and starts `jev-markets` (the cbBTC, WETH and
+  XAUt0 recorder, `src/profit/multi-recorder.ts`) by itself; health on `127.0.0.1:3102/health`
+  (set `MARKETS_HEALTH_PORT` in `.env` if another service owns 3102), log in `data/markets.log`.
+- **Pause:** `systemctl --user stop jev-agent.timer jev-recorder jev-markets`. **Resume:** `start` instead of `stop`.
+- **Remove everything:** as `jev`, `systemctl --user disable --now jev-agent.timer jev-recorder jev-markets`;
   then as root, `loginctl disable-linger jev && userdel -r jev`, and delete the deploy key on GitHub.
-- The public Monad RPC allows about 25 requests a second per IP and the recorder uses about 13, so
-  do not also run the demo from this server against the same public RPC.
+- The public Monad RPC allows about 25 requests a second per IP. The recorder uses about 13 and the
+  extra markets about 8 (in about 4 HTTP requests), so do not also run the demo from this server
+  against the same public RPC.

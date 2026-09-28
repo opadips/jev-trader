@@ -7,15 +7,16 @@ reports repo (`opadips/jev-trader-reports`, README), refreshed hourly by the ser
 
 ## Where we are
 
-**Day 2 of ~14: recording cleanly; still no strategy that survives realistic costs.** The
-Bybit/OKX lead is real and stable across both days, but trading it did not hold up in the
-backtest, and Jev's 3-second forecasts do not beat a one-line rule. Nothing trades; no money is at
-risk.
+**Day 3 of ~14: recording cleanly; still no strategy that survives realistic costs on MON-USDC.**
+The Bybit/OKX lead is real and stable, but trading it did not hold up in the backtest, and Jev's
+3-second forecasts do not beat a one-line rule. Now also recording cbBTC/USDC, WETH/USDC and
+XAUt0/USDC with the same measurements, to see whether any busy Kuru market has an edge; MON-USDC
+continues unchanged as the control. Nothing trades; no money is at risk.
 
 | Phase | Status | Gate |
 |---|---|---|
 | 0. Record | 🟢 recording on the VPS since 2026-09-25 00:45 UTC | >90% of blocks recorded, a reference venue live |
-| 1. Research | 🟡 day 2 done: lead-lag stable, no strategy survives costs yet | an edge that clears costs on separate days |
+| 1. Research | 🟡 MON-USDC day 3: lead-lag stable, no strategy survives costs yet; 3 more markets recording from 2026-09-28 | an edge that clears costs on separate days, on unseen data |
 | 2. Backtest | 🟡 backtester built and running hourly on the server; needs days of data | positive on days not used for tuning |
 | 3. Paper trade | ⚪ not started | matches the backtest for 2+ weeks |
 | 4. Small live | ⚪ not started, budget not decided | positive and in line with paper for weeks |
@@ -33,10 +34,13 @@ risk.
 
 ## Next
 
+0. **Extra markets:** confirm on the server that `jev-markets` runs, its three databases grow, the
+   control shows no new read errors (shared RPC budget), and the cross-market tables fill in.
+   Then compare markets day by day; no per-market tuning unless an edge repeats on unseen days.
 1. Watch the corrected per-day big-gap numbers (analyzer now exits at the touch and pays gas on
    both legs). If they stay positive after that correction on most days, dig into why the
    backtest disagrees (it walks deeper levels with 10,000 MON and exits on catch-up).
-2. Jev v3: keep collecting (it costs ~$0.14 a day) and re-score at day 7; unless it beats the
+2. Jev v3 (frozen: same prompt, inputs, horizon and frequency, MON-USDC only): keep collecting (it costs ~$0.14 a day) and re-score at day 7; unless it beats the
    "lead" rule and the logistic baseline, it gets no role in any strategy.
 3. **Days 3 to 14:** keep recording; an early stop is reasonable around day 7 if nothing changes.
 4. **~Day 14:** verdict per strategy. If one survives: the paper trader (Phase 3). If none: stop.
@@ -117,6 +121,22 @@ risk.
   Confirmed on the server at 01:39 UTC: reports resumed, a full run takes 26 s (was over 15 min),
   18 GB of disk free, 784 MB of data; finished days fill in one per hourly report.
 
+- **2026-09-28** More markets. Kuru market survey on chain (every `Trade` log over 12,000 blocks,
+  no address filter): only four markets traded at all, MON/USDC ($1.1M/h, 6,600 trades/h),
+  cbBTC/USDC ($324k/h, 1,036/h, 3.4 bps spread, $167k within 10 bps), WETH/USDC ($268k/h, 725/h,
+  1.9 bps, $67k) and XAUt0/USDC ($93k/h, 658/h, 0.6 bps, $55k); all 0/0 fees. MON/AUSD, AUSD/USDC
+  and emo/MON: no trades, empty books. The three new ones are recorded by a second process
+  (`jev-markets`) into their own databases: one batched book read for all of them every 2 blocks,
+  one log query for all their trades (every block covered), about 8 more RPC calls/s (total ~21 of
+  the ~25 allowed). Analyzer and backtester run unchanged on each: horizons in blocks, sizes in USD,
+  gas priced in MON from the control (the backtest had been pricing gas at the market's own mid,
+  which would have made gas on BTC 0.036 BTC; fixed). Status page: cross-market tables (volume,
+  trades/h, spread distribution, touch and depth, reference freshness, lag and absorption after
+  1/3/5/10/20 blocks, gas, gap frequency, gross and net edge, resting-order markouts, lag taking
+  at $5/$50/$250 on unseen data). The agent also analyses each market's finished days, and trims
+  the recorder logs in place (it used to swap the file, which left the recorder writing to the
+  old, deleted one).
+
 ## Decisions
 
 | Date | Decision | By |
@@ -129,6 +149,8 @@ risk.
 | 2026-09-25 | Build the backtester now, while data accumulates; test "take the lag" and "quote around the reference price", with Jev as an optional filter | you |
 | 2026-09-26 | Change Jev's question to the next ~3 s (10 blocks, flat within 2 bps), where the Bybit/OKX lead lives | you |
 | 2026-09-27 | One branch: `vps` only; the session's old working branch `claude/funny-bohr-xvrfex` is retired (nothing pushes to it) | you |
+| 2026-09-28 | Research the other busy Kuru markets with the same baseline, no per-market tuning; MON-USDC keeps recording through day 7 as the control; Jev v3 frozen | you |
+| 2026-09-28 | Markets: cbBTC/USDC, WETH/USDC, XAUt0/USDC (the only other Kuru markets that traded in the survey); books every 2 blocks to respect the public RPC limit | agreed |
 
 ## Day 3 review (2026-09-28; the latest report is from 2026-09-27 05:01, 52 h of data)
 

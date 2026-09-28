@@ -93,6 +93,28 @@ Phase 1 passes if any one of these holds across several separate days (run `--ho
 If none holds after two weeks, the honest conclusion is that this market does not have an edge for
 us, and the loss is time plus a few dollars of Jev calls.
 
+## More markets (since 2026-09-28)
+
+Same question on Kuru's other busy markets: does any of them have an edge that survives realistic
+costs and unseen data? MON-USDC stays the control, recorded exactly as before (its own process,
+database and Jev experiment; Jev v3 is not run on the other markets).
+
+- **Which:** the on-chain survey (`bun run src/profit/survey.ts`, run daily by the agent) scans
+  every Kuru `Trade` log. On 2026-09-28 only four markets traded at all: MON/USDC, cbBTC/USDC,
+  WETH/USDC and XAUt0/USDC, all with 0/0 fees and a reference price on the big exchanges. The
+  three new ones are listed in `src/profit/markets.ts`.
+- **How:** `src/profit/multi-recorder.ts` (service `jev-markets`) records them into
+  `data/markets/<slug>.sqlite`, same tables. Each sample is one batched request with every
+  market's book, plus one `eth_getLogs` with all their addresses. Books are read every 2 blocks to
+  stay inside the public RPC's ~25 requests/s next to the control's ~13 (about 8 more calls/s);
+  trade logs still cover every block.
+- **Tradeoff:** 1-block figures on those markets are measured at 2 blocks, and the taker check
+  enters at the next recorded book, 2 blocks late. Both make them look worse, never better.
+- **Same baseline everywhere, no per-market tuning:** the analyzer and backtester run unchanged on
+  each database (`--db`). Horizons are in blocks, order sizes in USD ($5, $50, $250), and gas is
+  0.036 MON priced from the control's MON/USDC mid, so a $5 order pays the same ~2 bps of gas on
+  every market. The status page puts them side by side ("Cross-market comparison").
+
 ## Running it on the server
 
 docs/VPS-SETUP.md: an unprivileged user runs the recorder and an agent that deploys from the `vps`
