@@ -353,3 +353,30 @@ describe("backtest", () => {
     expect([s.train.length, s.test.length]).toEqual([6, 4]);
   });
 });
+
+describe("market survey", () => {
+  const word = (x: bigint) => x.toString(16).padStart(64, "0");
+  const log = (address: string, isBuy: number, price: number, size: number, taker: number) => ({
+    address, blockNumber: "0x1",
+    data: "0x" + word(1n) + word(0xaan) + word(BigInt(isBuy)) + word(BigInt(Math.round(price * 1e6)) * 10n ** 12n) + word(0n) + word(BigInt(taker)) + word(BigInt(taker)) + word(BigInt(size) * 10n ** 10n),
+  });
+
+  test("aggregates trades per market and skips unknown markets", async () => {
+    const { summarizeTrades } = await import("./survey");
+    const out = summarizeTrades([log("0xA", 1, 2, 100, 1), log("0xa", 0, 2, 300, 2), log("0xb", 1, 5, 10, 1), log("0xc", 1, 1, 1, 1)], (a) => (a === "0xc" ? null : 10));
+    const a = out.find((m) => m.address === "0xa")!;
+    expect(a).toMatchObject({ trades: 2, baseVolume: 400, quoteVolume: 800, takers: 2, makers: 1, medianTradeBase: 200 });
+    expect(out.find((m) => m.address === "0xb")!.quoteVolume).toBe(50);
+    expect(out.some((m) => m.address === "0xc")).toBe(false);
+  });
+
+  test("reference asset per pair", async () => {
+    const { referenceFor } = await import("./survey");
+    expect(referenceFor("cbBTC", "USDC")).toBe("BTC");
+    expect(referenceFor("WETH", "USDC")).toBe("ETH");
+    expect(referenceFor("MON", "AUSD")).toBe("MON");
+    expect(referenceFor("XAUt0", "USDC")).toBe("XAUT");
+    expect(referenceFor("AUSD", "USDC")).toBeNull();
+    expect(referenceFor("emo", "MON")).toBeNull();
+  });
+});

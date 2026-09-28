@@ -193,7 +193,12 @@ report() {
   run_step "analyze (last 24 h)" 900 report.txt src/profit/analyze.ts --hours 24 --json-out "$REPORTS_DIR/report.json"
   run_step "backtest (last 24 h)" 900 backtest.txt src/profit/backtest-cli.ts --hours 24 --json-out "$REPORTS_DIR/backtest.json"
 
-  # 3. At most one finished day per run that has no stored analysis yet (kept for good in days/).
+  # 3. Kuru market survey (which markets trade, how much, how deep), refreshed once a day.
+  if [[ ! -f survey.json ]] || [[ -n "$(find survey.json -mmin +1440)" ]]; then
+    run_step "market survey" 600 survey.txt src/profit/survey.ts --json-out "$REPORTS_DIR/survey.json"
+  fi
+
+  # 4. At most one finished day per run that has no stored analysis yet (kept for good in days/).
   local d
   for d in $(cd "$REPO_DIR" && timeout 300 "$BUN" run src/profit/days.ts 2>/dev/null); do
     if [[ ! -f "days/$d.report.json" ]]; then

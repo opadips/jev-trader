@@ -153,7 +153,7 @@ export function renderStatus(o: { report: any; health: any; deploy: any; backtes
   if (o.agent) L.push("## Server (agent run)", "", "```", o.agent.trim(), "```", "");
 
   L.push("## Files", "");
-  L.push("- `report.txt`: the full analyzer report", "- `report.json`: the same, machine-readable", "- `health.json`: raw recorder health", "- `deploy.json`: last deploy", "- `recorder.log`: last 300 lines of the recorder log", "- `service.txt`: systemd status of the recorder and the agent timer", "- `backtest.txt` / `backtest.json`: the backtest report", "- `days/`: each finished day's analysis and backtest", "- `agent.txt`: the last agent run (disk, step timings, errors)", "");
+  L.push("- `report.txt`: the full analyzer report", "- `report.json`: the same, machine-readable", "- `health.json`: raw recorder health", "- `deploy.json`: last deploy", "- `recorder.log`: last 300 lines of the recorder log", "- `service.txt`: systemd status of the recorder and the agent timer", "- `backtest.txt` / `backtest.json`: the backtest report", "- `days/`: each finished day's analysis and backtest", "- `survey.txt` / `survey.json`: which Kuru markets trade, refreshed daily", "- `agent.txt`: the last agent run (disk, step timings, errors)", "");
   return L.join("\n");
 }
 

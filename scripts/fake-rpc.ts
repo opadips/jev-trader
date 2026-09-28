@@ -23,7 +23,7 @@ function tradeLogs(from: number, to: number) {
   for (let b = from; b <= Math.min(to, block); b++) {
     const addr = (n: number) => word(BigInt(n));
     const data = "0x" + word(BigInt(b)) + addr(0xaa) + word(BigInt(b % 2)) + word(BigInt(Math.round(mid * 1e6)) * 10n ** 12n) + word(0n) + addr(0xbb) + addr(0xbb) + word(units(500 + (b % 7) * 100, SIZE_DEC));
-    out.push({ blockNumber: "0x" + b.toString(16), logIndex: "0x0", transactionHash: "0x" + b.toString(16).padStart(64, "0"), data, removed: false });
+    out.push({ address: "0x065c9d28e428a0db40191a54d33d5b7c71a9c394", blockNumber: "0x" + b.toString(16), logIndex: "0x0", transactionHash: "0x" + b.toString(16).padStart(64, "0"), data, removed: false });
   }
   return out;
 }
@@ -51,6 +51,7 @@ function handle(req: { id: number; method: string; params: any[] }) {
     case "eth_chainId": return ok("0x8f");
     case "net_version": return ok("143");
     case "eth_blockNumber": return ok("0x" + block.toString(16));
+    case "eth_getBlockByNumber": return ok({ number: req.params[0], timestamp: "0x" + Math.floor(parseInt(req.params[0], 16) * 0.3).toString(16) });
     case "eth_getLogs": return ok(tradeLogs(parseInt(req.params[0].fromBlock, 16), parseInt(req.params[0].toBlock, 16)));
     case "eth_call": {
       const sel = String(req.params[0].data).slice(0, 10);
