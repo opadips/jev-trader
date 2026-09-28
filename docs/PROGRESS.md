@@ -34,7 +34,8 @@ continues unchanged as the control. Nothing trades; no money is at risk.
 
 ## Next
 
-0. **Extra markets:** running (confirmed 2026-09-28). Compare markets day by day once full days exist; no per-market tuning unless an edge repeats on unseen days.
+0. **Extra markets:** running (confirmed 2026-09-28), storage agreed for up to 10 days (to ~2026-10-08;
+   watch "disk" in `agent.txt`). Compare markets day by day once full days exist; no per-market tuning unless an edge repeats on unseen days.
 1. Watch the corrected per-day big-gap numbers (analyzer now exits at the touch and pays gas on
    both legs). If they stay positive after that correction on most days, dig into why the
    backtest disagrees (it walks deeper levels with 10,000 MON and exits on catch-up).
@@ -154,6 +155,7 @@ continues unchanged as the control. Nothing trades; no money is at risk.
 | 2026-09-27 | One branch: `vps` only; the session's old working branch `claude/funny-bohr-xvrfex` is retired (nothing pushes to it) | you |
 | 2026-09-28 | Research the other busy Kuru markets with the same baseline, no per-market tuning; MON-USDC keeps recording through day 7 as the control; Jev v3 frozen | you |
 | 2026-09-28 | Markets: cbBTC/USDC, WETH/USDC, XAUt0/USDC (the only other Kuru markets that traded in the survey); books every 2 blocks to respect the public RPC limit | agreed |
+| 2026-09-28 | Storage: all recordings together grow ~800 MB a day (the extra markets ~550 of it); accepted for up to 10 days (to ~2026-10-08), then stop or trim the extra markets | you |
 
 ## Day 3 review (2026-09-28; the latest report is from 2026-09-27 05:01, 52 h of data)
 
