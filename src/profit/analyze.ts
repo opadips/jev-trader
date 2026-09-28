@@ -3,6 +3,7 @@
  *
  *   bun run analyze                         # last 72 hours
  *   bun run analyze --hours 24              # last 24 hours ("all" for everything; ~1 GB of RAM per 2M rows)
+ *   bun run analyze --day 2026-09-26        # one UTC day (what the server stores per day)
  *   bun run analyze --json > report.json    # machine-readable
  *   bun run analyze --json-out report.json  # text on stdout and JSON to a file, one pass
  *   bun run analyze --db path --gas-mon 0.036 --order-mon 200
@@ -11,13 +12,14 @@
  */
 import { parseArgs } from "node:util";
 import { profit } from "./config";
-import { Store } from "./db";
+import { Store, timeWindow } from "./db";
 import { coverage, evaluateForecasts, leadLag, makerMarkouts, marketStats, takerArb, takerArbByDay } from "./analysis";
 
 const { values: args } = parseArgs({
   options: {
     db: { type: "string", default: profit.dbPath },
     hours: { type: "string", default: "72" },
+    day: { type: "string" },
     "gas-mon": { type: "string", default: "0.036" },
     "order-mon": { type: "string", default: "200" },
     json: { type: "boolean", default: false },
@@ -33,9 +35,8 @@ if (!(await Bun.file(args.db!).exists())) {
 }
 const store = new Store(args.db!, { readonly: true });
 const meta = store.meta() as { market?: { takerFeeBps: number; makerFeeBps: number } };
-const lastTs = store.lastTs();
-const fromTs = args.hours === "all" || lastTs === null ? 0 : lastTs - Number(args.hours) * 3_600_000;
-const books = store.books({ fromTs, lite: true });
+const win = timeWindow({ hours: args.hours, day: args.day }, store.lastTs());
+const books = store.books({ fromTs: win.fromTs, toTs: win.toTs, lite: true });
 if (books.length < 200) {
   const note = `only ${books.length} book rows in ${args.db}; let the recorder run longer (an hour is ~12,000 rows).`;
   if (args["json-out"]) await Bun.write(args["json-out"], JSON.stringify({ note }));
@@ -51,6 +52,7 @@ const takerFeeBps = meta.market?.takerFeeBps ?? NaN, makerFeeBps = meta.market?.
 const gasBps = (Number(args["gas-mon"]) / Number(args["order-mon"])) * 10_000;
 
 const report = {
+  window: win.label,
   costs: { takerFeeBps, makerFeeBps, gasBpsPerTx: gasBps, orderMon: Number(args["order-mon"]) },
   coverage: coverage(books),
   market: marketStats(books, trades),
@@ -71,7 +73,7 @@ const f = (x: number | null | undefined, d = 2) => (x === null || x === undefine
 const pct = (x: number | null | undefined) => (x === null || x === undefined || !Number.isFinite(x) ? "n/a" : `${(x * 100).toFixed(1)}%`);
 const c = report.coverage!, m = report.market;
 
-console.log(`\n== Coverage`);
+console.log(`\n== Coverage (${win.label})`);
 console.log(`${c.rows} rows, blocks ${c.fromBlock}..${c.toBlock}, ${f(c.hours, 1)} h, ${pct(c.blockCoverage)} of blocks recorded (${c.gaps} gaps)`);
 console.log(`reference venues fresh: ${Object.entries(c.venueFresh).map(([v, s]) => `${v} ${pct(s)}`).join(", ") || "none"}`);
 

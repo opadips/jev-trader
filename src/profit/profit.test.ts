@@ -242,6 +242,14 @@ describe("status page", () => {
     expect(noJevEdge[3]!.state).toBe("fail");
   });
 
+  test("day-by-day table", async () => {
+    const { renderDays } = await import("./status");
+    expect(renderDays([])[0]).toContain("No finished days");
+    const rows = renderDays([{ day: "2026-09-26", report: { ...base, takerArb: [{ thresholdBps: 20, trades: 21, netBps: 5.59 }], forecasts: { models: { jev: { logLoss: 1.13 }, lead: { logLoss: 0.84 } } } },
+      backtest: { families: [{ name: "take the lag", all: [[{}, 0.1, -0.2, 3], [{}, 0.05, 0.03, 2]] }, { name: "quote around a fair price", all: [[{}, -1, -0.5, 9]] }] } }]);
+    expect(rows[2]).toBe("| 2026-09-26 | 30.0 | 0.400 | 1.00 | 21, 5.59 | 0.030 | -0.500 | 1.130 vs 0.840 |");
+  });
+
   test("renders with everything missing, and with a full report", async () => {
     const { renderStatus } = await import("./status");
     const empty = renderStatus({ report: null, health: null, deploy: null, now: new Date(0) });

@@ -5,16 +5,17 @@
 #   1. deploy  if origin/$DEPLOY_BRANCH moved: check it out, bun install, bun test; restart the
 #              recorder only if the tests pass, otherwise roll back and remember the bad commit.
 #              A push that only changes documentation is checked out without tests or a restart.
-#   2. report  hourly (and after every deploy): analyzer report, backtest report, /health, recorder log
-#              tail, systemd's view of the services and the deploy record, plus a README status page,
-#              pushed to the reports repo
+#   2. report  hourly (and after every deploy): first a cheap liveness push (health, service status,
+#              log tail, disk), then the analyzer and backtest over the last 24 h, then at most one
+#              finished UTC day not yet analyzed (kept in days/). Every heavy step has its own time
+#              limit, and timings and errors go to agent.txt, so a slow step cannot silence the page.
 #   3. tidy    keep the recorder log under 50 MB
 #
 # It never runs commands that arrive through git other than the repo's own install and tests.
 # Everything is wrapped in main() so a deploy that rewrites this file cannot corrupt the running copy.
 
 main() {
-  set -euo pipefail
+  set -Eeuo pipefail
   REPO_DIR="${REPO_DIR:-$HOME/jev-trader}"
   REPORTS_DIR="${REPORTS_DIR:-$HOME/jev-reports}"
   DEPLOY_BRANCH="${DEPLOY_BRANCH:-vps}"
@@ -32,7 +33,8 @@ main() {
   # A run that just deployed re-executes the new version of this script (see deploy) and hands
   # over the lock it holds on fd 9.
   if [[ "${AGENT_REEXEC:-0}" != "1" ]]; then
-    exec 9>"$STATE_DIR/lock"
+    trap 'echo "$(date -u +%FT%TZ) line $LINENO: $BASH_COMMAND" >>"$STATE_DIR/errors.log"' ERR
+  exec 9>"$STATE_DIR/lock"
     flock -n 9 || { echo "another agent run is in progress"; return 0; }
   fi
 
@@ -136,6 +138,33 @@ scrub() {
   fi
 }
 
+# One heavy step with its own time limit, so a slow step cannot take the whole run (and the report)
+# down with it. Output goes to $out (scrubbed); the outcome and duration go to agent.txt.
+run_step() {
+  local name="$1" secs="$2" out="$3"; shift 3
+  local t0=$SECONDS rc
+  set +e
+  (cd "$REPO_DIR" && timeout "$secs" nice -n 15 "$BUN" run "$@" 2>&1) | scrub >"$REPORTS_DIR/$out"
+  rc=${PIPESTATUS[0]}
+  set -e
+  echo "$name: $([[ $rc == 0 ]] && echo ok || { [[ $rc == 124 ]] && echo "TIMED OUT after ${secs}s" || echo "failed (exit $rc)"; }) in $((SECONDS - t0)) s" >>"$REPORTS_DIR/agent.txt"
+}
+
+# Commit whatever changed in the reports repo and push; a failed push is noted, never fatal.
+push_reports() {
+  cd "$REPORTS_DIR"
+  git add -A
+  if git commit -q -m "$1"; then
+    git push -q origin HEAD || { sleep 5; git pull -q --rebase origin HEAD && git push -q origin HEAD; } || echo "$(date -u +%FT%TZ) push failed: $1" >>"$STATE_DIR/errors.log"
+  fi
+}
+
+render_readme() {
+  (cd "$REPO_DIR" && "$BUN" run src/profit/status.ts --report "$REPORTS_DIR/report.json" --health "$REPORTS_DIR/health.json" \
+    --deploy "$REPORTS_DIR/deploy.json" --backtest "$REPORTS_DIR/backtest.json" --days-dir "$REPORTS_DIR/days" --agent "$REPORTS_DIR/agent.txt") \
+    >"$REPORTS_DIR/README.md.tmp" && mv "$REPORTS_DIR/README.md.tmp" "$REPORTS_DIR/README.md"
+}
+
 report() {
   local stamp="$STATE_DIR/last_report"
   if [[ "$FORCE_REPORT" == "0" && -f "$stamp" ]] && [[ -z "$(find "$stamp" -mmin +"$((REPORT_EVERY_MIN - 1))")" ]]; then
@@ -143,21 +172,41 @@ report() {
   fi
   cd "$REPORTS_DIR"
   git pull -q --rebase origin HEAD 2>/dev/null || true
+  mkdir -p days
 
+  # 1. Liveness first: cheap files, pushed before any heavy work, so the page never goes silent.
+  {
+    echo "run $NOW, code $(git -C "$REPO_DIR" rev-parse --short HEAD)"
+    echo "disk: $(df -h "$REPO_DIR" | tail -1 | awk '{print $4 " free of " $2 " (" $5 " used)"}'), data: $(du -sh "$REPO_DIR/data" 2>/dev/null | cut -f1)"
+    if [[ -s "$STATE_DIR/errors.log" ]]; then echo "recent agent errors:"; tail -n 5 "$STATE_DIR/errors.log"; fi
+  } >agent.txt
   if ! curl -s --max-time 5 -o health.json "$HEALTH_URL"; then echo null >health.json; fi
   cp "$STATE_DIR/deploy.json" deploy.json 2>/dev/null || echo null >deploy.json
   if [[ -f "$LOG_FILE" ]]; then tail -n 300 "$LOG_FILE" | scrub >recorder.log; else echo "no log yet" >recorder.log; fi
   { $STATUS_CMD 2>&1 || true; } | scrub >service.txt
-  (cd "$REPO_DIR" && nice -n 15 "$BUN" run src/profit/analyze.ts --json-out "$REPORTS_DIR/report.json" 2>&1) | scrub >report.txt || true
   [[ -f report.json ]] || echo null >report.json
-  (cd "$REPO_DIR" && nice -n 15 "$BUN" run src/profit/backtest-cli.ts --json-out "$REPORTS_DIR/backtest.json" 2>&1) | scrub >backtest.txt || true
   [[ -f backtest.json ]] || echo null >backtest.json
-  (cd "$REPO_DIR" && "$BUN" run src/profit/status.ts --report "$REPORTS_DIR/report.json" --health "$REPORTS_DIR/health.json" --deploy "$REPORTS_DIR/deploy.json" --backtest "$REPORTS_DIR/backtest.json") >README.md
+  render_readme || true
+  push_reports "live $NOW"
 
-  git add -A
-  if git commit -q -m "status $NOW"; then
-    git push -q origin HEAD || { sleep 5; git pull -q --rebase origin HEAD && git push -q origin HEAD; }
-  fi
+  # 2. The last 24 h: bounded work, whatever the size of the recording.
+  run_step "analyze (last 24 h)" 900 report.txt src/profit/analyze.ts --hours 24 --json-out "$REPORTS_DIR/report.json"
+  run_step "backtest (last 24 h)" 900 backtest.txt src/profit/backtest-cli.ts --hours 24 --json-out "$REPORTS_DIR/backtest.json"
+
+  # 3. At most one finished day per run that has no stored analysis yet (kept for good in days/).
+  local d
+  for d in $(cd "$REPO_DIR" && timeout 300 "$BUN" run src/profit/days.ts 2>/dev/null); do
+    if [[ ! -f "days/$d.report.json" ]]; then
+      run_step "day $d analyze" 1200 "days/$d.report.txt" src/profit/analyze.ts --day "$d" --json-out "$REPORTS_DIR/days/$d.report.json"
+      run_step "day $d backtest" 1200 "days/$d.backtest.txt" src/profit/backtest-cli.ts --day "$d" --json-out "$REPORTS_DIR/days/$d.backtest.json"
+      [[ -f "days/$d.report.json" ]] || echo null >"days/$d.report.json" # a failed day is not retried forever
+      break
+    fi
+  done
+
+  echo "done in $((SECONDS)) s" >>agent.txt
+  render_readme || true
+  push_reports "status $NOW"
   touch "$stamp"
 }
 

@@ -49,6 +49,8 @@ CREATE TABLE IF NOT EXISTS books (
   spread_bps REAL NOT NULL, imbalance REAL NOT NULL, bids TEXT NOT NULL, asks TEXT NOT NULL, depth TEXT NOT NULL,
   ref TEXT NOT NULL, read_ms INTEGER NOT NULL
 );
+-- Time-window reads (analyze --day/--hours, MAX(ts), per-day counts) use this instead of scanning every row.
+CREATE INDEX IF NOT EXISTS books_ts ON books (ts);
 CREATE TABLE IF NOT EXISTS trades (
   block INTEGER NOT NULL, log_index INTEGER NOT NULL, tx TEXT NOT NULL, side TEXT NOT NULL, price REAL NOT NULL,
   size REAL NOT NULL, maker TEXT NOT NULL, taker TEXT NOT NULL, order_id INTEGER NOT NULL,
@@ -148,15 +150,21 @@ export class Store {
    * Book rows with ts >= `fromTs`. `lite` keeps only the best level per side and drops depth, which
    * is all the analyzer needs and cuts memory by ~3x on multi-day recordings.
    */
-  books(opts: { fromTs?: number; lite?: boolean } = {}): BookRow[] {
-    const { fromTs = 0, lite = false } = opts;
-    return this.db.query<any, [number]>("SELECT * FROM books WHERE ts >= ? ORDER BY block").all(fromTs).map((r) => {
+  books(opts: { fromTs?: number; toTs?: number; lite?: boolean } = {}): BookRow[] {
+    const { fromTs = 0, toTs = Number.MAX_SAFE_INTEGER, lite = false } = opts;
+    return this.db.query<any, [number, number]>("SELECT * FROM books WHERE ts >= ? AND ts < ? ORDER BY block").all(fromTs, toTs).map((r) => {
       const bids = JSON.parse(r.bids), asks = JSON.parse(r.asks);
       return {
         block: r.block, ts: r.ts, bid: r.bid, ask: r.ask, mid: r.mid, spreadBps: r.spread_bps, imbalance: r.imbalance,
         bids: lite ? bids.slice(0, 1) : bids, asks: lite ? asks.slice(0, 1) : asks, depth: lite ? {} : JSON.parse(r.depth), ref: JSON.parse(r.ref), readMs: r.read_ms,
       };
     });
+  }
+
+  /** UTC days (YYYY-MM-DD) with at least `minRows` book rows, oldest first. */
+  days(minRows = 20_000): { day: string; rows: number }[] {
+    return this.db.query<{ day: string; rows: number }, [number]>(
+      "SELECT date(ts / 1000, 'unixepoch') AS day, COUNT(*) AS rows FROM books GROUP BY day HAVING rows >= ? ORDER BY day").all(minRows);
   }
 
   lastTs(): number | null {
@@ -186,4 +194,18 @@ export class Store {
     if (this.insBook) this.flush();
     this.db.close();
   }
+}
+
+/**
+ * The analysis window: one UTC day (`day` = "YYYY-MM-DD"), or the last `hours` before the newest
+ * row ("all" for everything). Reports stay bounded by using a day or a fixed number of hours.
+ */
+export function timeWindow(opts: { hours?: string; day?: string }, lastTs: number | null): { fromTs: number; toTs: number; label: string } {
+  if (opts.day) {
+    const from = Date.parse(`${opts.day}T00:00:00Z`);
+    if (!Number.isFinite(from)) throw new Error(`bad --day ${opts.day} (want YYYY-MM-DD)`);
+    return { fromTs: from, toTs: from + 86_400_000, label: `UTC day ${opts.day}` };
+  }
+  if (!opts.hours || opts.hours === "all" || lastTs === null) return { fromTs: 0, toTs: Number.MAX_SAFE_INTEGER, label: "all data" };
+  return { fromTs: lastTs - Number(opts.hours) * 3_600_000, toTs: Number.MAX_SAFE_INTEGER, label: `last ${opts.hours} h` };
 }

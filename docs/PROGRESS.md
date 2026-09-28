@@ -3,7 +3,7 @@
 The project log for Profit Mode. Updated at the end of every work session. Live numbers are in the
 reports repo (`opadips/jev-trader-reports`, README), refreshed hourly by the server.
 
-**Last updated:** 2026-09-27
+**Last updated:** 2026-09-28
 
 ## Where we are
 
@@ -23,9 +23,7 @@ risk.
 ## Waiting on you
 
 - [x] `vps` branch created (2026-09-25); the server deploys from it.
-- [ ] Delete the retired branch `claude/funny-bohr-xvrfex` on GitHub (Code > Branches > trash icon).
-      The cloud session cannot delete it: its git access refuses to delete the branch the session
-      was created with. It holds nothing that `vps` does not.
+- [x] Retired branch `claude/funny-bohr-xvrfex` deleted on GitHub (2026-09-27).
 - [ ] Decide whether to merge Profit Mode into `main` (a pull request), or keep it on its own branches for now.
 - [x] Reports repo created and the server set up (2026-09-25).
 - [x] `JEV_EVERY=50` set in the server's `.env` (2026-09-25).
@@ -109,6 +107,14 @@ risk.
   documentation-only pushes without running tests or restarting the recorder, so progress-log
   updates cause no gap in recording.
 
+- **2026-09-28** Report stall fixed: every run now pushes a cheap liveness report (health, service
+  status, log tail, disk space) before any heavy work; the hourly analysis and backtest cover the
+  last 24 h only; each finished UTC day is analysed once and kept in `days/` in the reports repo,
+  with a day-by-day table on the status page; every heavy step has its own time limit and its
+  timing and errors go to `agent.txt`; an index on `books.ts` stops time-window queries from
+  scanning the whole database; the agent's systemd limit is 90 minutes. Backtest JSON now keeps
+  every variant's result, not just the top 5.
+
 ## Decisions
 
 | Date | Decision | By |
@@ -121,6 +127,21 @@ risk.
 | 2026-09-25 | Build the backtester now, while data accumulates; test "take the lag" and "quote around the reference price", with Jev as an optional filter | you |
 | 2026-09-26 | Change Jev's question to the next ~3 s (10 blocks, flat within 2 bps), where the Bybit/OKX lead lives | you |
 | 2026-09-27 | One branch: `vps` only; the session's old working branch `claude/funny-bohr-xvrfex` is retired (nothing pushes to it) | you |
+
+## Day 3 review (2026-09-28; the latest report is from 2026-09-27 05:01, 52 h of data)
+
+**Reports stalled.** After 2026-09-27 05:01 the server pushed nothing (and had already skipped
+some hours). The recorder was healthy in the last report. Most likely cause: every hourly report
+re-analysed the whole recording (now over 1 GB) inside the agent's 1 GB / 15-minute limits, and
+every time-based query scanned the whole database because `ts` had no index; once a run passed
+15 minutes, systemd killed it before it pushed anything. Fixed the same day (see Done).
+
+**Corrected numbers (exit at the touch, gas and fees on both legs), 52 h:** gaps over 20 bps
+still made money at 200 MON: +4.2 bps per trade over 40 trades (53% winners), and by day +2.6
+(18 trades) on 09-25 and +5.6 (21 trades) on 09-26. That is about $0.04 a day at 200 MON: real
+but tiny, and the backtest's pick for bigger orders (30 bps, 10,000 MON) lost on its unseen
+hours. Lead-lag unchanged (0.28 at one block). Jev v3 unchanged: log loss 1.13 vs 0.84 for the
+lead rule. Nothing new that clears costs at a useful size.
 
 ## Day 2 review (2026-09-27, 48 h of data)
 

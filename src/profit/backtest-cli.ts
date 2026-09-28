@@ -8,7 +8,7 @@
  */
 import { parseArgs } from "node:util";
 import { profit } from "./config";
-import { Store } from "./db";
+import { Store, timeWindow } from "./db";
 import { fairValues } from "./analysis";
 import { DEFAULT_COSTS, grid, lagTaker, refMaker, splitByTime, type Costs, type LagParams, type MakerParams, type Result } from "./backtest";
 
@@ -16,6 +16,7 @@ const { values: args } = parseArgs({
   options: {
     db: { type: "string", default: profit.dbPath },
     hours: { type: "string", default: "24" },
+    day: { type: "string" },
     "gas-mon": { type: "string", default: String(DEFAULT_COSTS.gasMon) },
     "latency-blocks": { type: "string", default: String(DEFAULT_COSTS.latencyBlocks) },
     "json-out": { type: "string" },
@@ -33,8 +34,8 @@ if (!(await Bun.file(args.db!).exists())) {
   process.exit(0);
 }
 const store = new Store(args.db!, { readonly: true });
-const lastTs = store.lastTs() ?? 0;
-const books = store.books({ fromTs: args.hours === "all" ? 0 : lastTs - Number(args.hours) * 3_600_000 });
+const win = timeWindow({ hours: args.hours, day: args.day }, store.lastTs());
+const books = store.books({ fromTs: win.fromTs, toTs: win.toTs });
 if (books.length < 2000) {
   const note = `only ${books.length} book rows; backtests need at least 2,000 (~10 minutes)`;
   await out({ note }, note);
@@ -80,9 +81,11 @@ const families: Family[] = [
   },
 ];
 
+const round3 = (x: number) => (Number.isFinite(x) ? Math.round(x * 1000) / 1000 : null);
 const t0 = performance.now();
 const report = {
   generatedAt: new Date().toISOString(),
+  window: win.label,
   rows: books.length,
   hours: { train: train.length > 1 ? (train.at(-1)!.ts - train[0]!.ts) / 3_600_000 : 0, test: test.length > 1 ? (test.at(-1)!.ts - test[0]!.ts) / 3_600_000 : 0 },
   costs, jevModel: preds.length ? latestModel : null,
@@ -96,6 +99,8 @@ const report = {
       top: rows.slice(0, 5).map((r) => ({ variant: r.variant, train: brief(r.train), test: brief(r.test) })),
       variantsPositiveOnTest: rows.filter((r) => r.test.pnlUsd > 0).length,
       variants: rows.length,
+      /** Every variant, compactly: [settings, tuning $/h, unseen $/h, unseen transactions]. */
+      all: rows.map((r) => [r.variant, round3(r.train.pnlPerHourUsd), round3(r.test.pnlPerHourUsd), r.test.txs]),
     };
   }),
   seconds: 0,
@@ -106,7 +111,7 @@ const f = (x: number, d = 2) => (Number.isFinite(x) ? x.toFixed(d) : "n/a");
 const pct = (x: number) => (Number.isFinite(x) ? `${(x * 100).toFixed(0)}%` : "n/a");
 const show = (v: Record<string, unknown>) => Object.entries(v).map(([k, x]) => `${k}=${x}`).join(" ");
 const L: string[] = [];
-L.push(`Backtest over ${books.length} rows: tuned on the first ${f(report.hours.train, 1)} h, tested on the last ${f(report.hours.test, 1)} h.`);
+L.push(`Backtest (${win.label}) over ${books.length} rows: tuned on the first ${f(report.hours.train, 1)} h, tested on the last ${f(report.hours.test, 1)} h.`);
 L.push(`Costs: ${costs.latencyBlocks} block latency, ${costs.gasMon} MON gas per tx, fees ${costs.takerFeeBps}/${costs.makerFeeBps} bps (taker/maker). Jev forecasts: ${preds.length ? `${preds.length} from ${latestModel}` : "none"}.`);
 for (const fam of report.families) {
   const c = fam.chosen;

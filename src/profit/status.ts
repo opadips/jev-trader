@@ -71,7 +71,31 @@ export function gates(r: any): Gate[] {
 const ICON: Record<GateState, string> = { pass: "✅ pass", fail: "❌ fail", collecting: "⏳ collecting", "no data": "⚪ no data" };
 
 /** README.md for the reports repo. */
-export function renderStatus(o: { report: any; health: any; deploy: any; backtest?: any; now: Date }): string {
+/** One finished day's stored analysis and backtest (days/<day>.report.json and .backtest.json). */
+export interface DayResult { day: string; report: any; backtest: any }
+
+/** The day-by-day table: the numbers that decide whether anything repeats. */
+export function renderDays(days: DayResult[]): string[] {
+  if (!days.length) return ["No finished days analyzed yet.", ""];
+  const f = (x: unknown, d = 2) => (typeof x === "number" && Number.isFinite(x) ? x.toFixed(d) : "n/a");
+  const L = ["| Day | Hours | Lead (corr, +1 block) | Resting order net at 33 blocks | Gaps > 20 bps: trades, net bps | Best lag-taking on unseen $/h | Best quoting on unseen $/h | Jev vs lead (log loss) |", "|---|---|---|---|---|---|---|---|"];
+  for (const { day, report: r, backtest: b } of days) {
+    const m33 = r?.makerMarkouts?.find((m: any) => m.horizon === 33);
+    const g20 = r?.takerArb?.find((a: any) => a.thresholdBps === 20);
+    const best = (name: string) => {
+      const fam = b?.families?.find((x: any) => x.name === name);
+      const vals: number[] = (fam?.all ?? []).map((v: any) => v[2]).filter((x: any) => typeof x === "number");
+      return vals.length ? Math.max(...vals) : NaN;
+    };
+    const models = r?.forecasts?.models;
+    const jev = models?.jev ? `${f(models.jev.logLoss, 3)} vs ${f(models.lead?.logLoss, 3)}` : "n/a";
+    L.push(`| ${day} | ${f(r?.coverage?.hours, 1)} | ${f(r?.leadLag?.best?.corr, 3)} | ${f(m33?.netBps)} | ${g20 ? `${g20.trades}, ${f(g20.netBps)}` : "n/a"} | ${f(best("take the lag"), 3)} | ${f(best("quote around a fair price"), 3)} | ${jev} |`);
+  }
+  L.push("", "Each day is analyzed on its own (backtests tuned on its first 60%, scored on its last 40%). \"Best on unseen\" is the best of all settings on the unseen part, so it flatters; a real edge shows up as the same settings winning day after day.", "");
+  return L;
+}
+
+export function renderStatus(o: { report: any; health: any; deploy: any; backtest?: any; days?: DayResult[]; agent?: string | null; now: Date }): string {
   const { report: r, health: h, deploy: d, backtest: bt, now } = o;
   const L: string[] = [];
   L.push("# Jev Trader: live status", "");
@@ -96,7 +120,7 @@ export function renderStatus(o: { report: any; health: any; deploy: any; backtes
   if (!d) L.push("No deploy record yet.", "");
   else L.push(`Running \`${String(d.commit ?? "").slice(0, 7)}\` from \`${d.branch}\`, deployed ${d.deployedAt ?? "n/a"}. Last check ${d.checkedAt ?? "n/a"}: **${d.result ?? "n/a"}**${d.detail ? `: ${d.detail}` : ""}.`, "");
 
-  L.push("## Phase 1 gates (last 72 h)", "");
+  L.push("## Phase 1 gates (last 24 h)", "");
   if (!r || r.note) L.push(r?.note ?? "No report yet: the analyzer needs at least a few minutes of recording.", "");
   else {
     L.push(`Judged only after ${MIN_HOURS} h of recording. A pass has to repeat on separate days before it counts.`, "");
@@ -104,7 +128,7 @@ export function renderStatus(o: { report: any; health: any; deploy: any; backtes
     for (const g of gates(r)) L.push(`| ${g.name} | ${ICON[g.state]} | ${g.detail} |`);
     L.push("");
     const m = r.market;
-    L.push("## Market (last 72 h)", "");
+    L.push("## Market (last 24 h)", "");
     L.push(`Spread p50 ${f(m.spreadBps?.p50)} bps, ${f(m.printsPerHour, 0)} prints/h, $${f(m.usdPerHour, 0)}/h volume, ${m.distinctTakers} takers, ${m.distinctMakers} makers. Fees: taker ${f(r.costs.takerFeeBps)} bps, maker ${f(r.costs.makerFeeBps)} bps; gas ${f(r.costs.gasBpsPerTx)} bps per tx.`, "");
     const ll = r.leadLag;
     if (ll?.best) L.push(`Kuru follows the reference venues ${ll.best.lag} rows later (corr ${f(ll.best.corr, 3)}); absorbed after 10 rows: ${f(ll.catchUp?.find((x: any) => x.rows === 10)?.beta)}.`, "");
@@ -123,14 +147,28 @@ export function renderStatus(o: { report: any; health: any; deploy: any; backtes
     L.push("");
   }
 
+  L.push("## Day by day (finished UTC days)", "");
+  L.push(...renderDays(o.days ?? []));
+
+  if (o.agent) L.push("## Server (agent run)", "", "```", o.agent.trim(), "```", "");
+
   L.push("## Files", "");
-  L.push("- `report.txt`: the full analyzer report", "- `report.json`: the same, machine-readable", "- `health.json`: raw recorder health", "- `deploy.json`: last deploy", "- `recorder.log`: last 300 lines of the recorder log", "- `service.txt`: systemd status of the recorder and the agent timer", "- `backtest.txt` / `backtest.json`: the backtest report", "");
+  L.push("- `report.txt`: the full analyzer report", "- `report.json`: the same, machine-readable", "- `health.json`: raw recorder health", "- `deploy.json`: last deploy", "- `recorder.log`: last 300 lines of the recorder log", "- `service.txt`: systemd status of the recorder and the agent timer", "- `backtest.txt` / `backtest.json`: the backtest report", "- `days/`: each finished day's analysis and backtest", "- `agent.txt`: the last agent run (disk, step timings, errors)", "");
   return L.join("\n");
 }
 
 if (import.meta.main) {
-  const { values: a } = parseArgs({ options: { report: { type: "string" }, health: { type: "string" }, deploy: { type: "string" }, backtest: { type: "string" } } });
+  const { values: a } = parseArgs({ options: { report: { type: "string" }, health: { type: "string" }, deploy: { type: "string" }, backtest: { type: "string" }, "days-dir": { type: "string" }, agent: { type: "string" } } });
   const read = async (p?: string) => { if (!p) return null; try { return JSON.parse(await Bun.file(p).text()); } catch { return null; } };
   const [report, health, deploy, backtest] = await Promise.all([read(a.report), read(a.health), read(a.deploy), read(a.backtest)]);
-  process.stdout.write(renderStatus({ report, health, deploy, backtest, now: new Date() }));
+  const days: DayResult[] = [];
+  if (a["days-dir"]) {
+    const names = [...new Bun.Glob("*.report.json").scanSync(a["days-dir"])].sort();
+    for (const n of names) {
+      const day = n.replace(".report.json", "");
+      days.push({ day, report: await read(`${a["days-dir"]}/${n}`), backtest: await read(`${a["days-dir"]}/${day}.backtest.json`) });
+    }
+  }
+  const agent = a.agent && (await Bun.file(a.agent).exists()) ? await Bun.file(a.agent).text() : null;
+  process.stdout.write(renderStatus({ report, health, deploy, backtest, days, agent, now: new Date() }));
 }
