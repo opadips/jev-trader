@@ -3,7 +3,7 @@
 The project log for Profit Mode. Updated at the end of every work session. Live numbers are in the
 reports repo (`opadips/jev-trader-reports`, README), refreshed hourly by the server.
 
-**Last updated:** 2026-09-28
+**Last updated:** 2026-09-29
 
 ## Where we are
 
@@ -156,6 +156,24 @@ continues unchanged as the control. Nothing trades; no money is at risk.
 | 2026-09-28 | Research the other busy Kuru markets with the same baseline, no per-market tuning; MON-USDC keeps recording through day 7 as the control; Jev v3 frozen | you |
 | 2026-09-28 | Markets: cbBTC/USDC, WETH/USDC, XAUt0/USDC (the only other Kuru markets that traded in the survey); books every 2 blocks to respect the public RPC limit | agreed |
 | 2026-09-28 | Storage: all recordings together grow ~800 MB a day (the extra markets ~550 of it); accepted for up to 10 days (to ~2026-10-08), then stop or trim the extra markets | you |
+
+## Day 4 check (2026-09-29 04:00 UTC, 25 h of the extra markets)
+
+All recorders healthy (extra markets: 151k samples each, 1 request error; control: 1 read error,
+95% of blocks); disk 16 GB free, data 1.6 GB (~32 MB an hour, as expected).
+
+**Extra markets, first full day (09-28), no edge:** essentially no price gaps to trade (0 gaps over
+10 bps per hour on any of them); the few 2 bps gaps lost 4.5 to 7.5 bps each after costs (win rate
+4 to 8%). Resting orders: cbBTC +0.4 bps, WETH -0.2, XAUt0 -0.8 at 33 blocks before gas, against
+~2 bps of gas per quote. Kuru tracks the reference closely there (corr 0.4 to 0.6, 60 to 90%
+absorbed within 10 to 20 blocks), so there is little lag left to take. Backtests: 0 of 54 lag
+variants positive on every market.
+
+**Control (MON-USDC) changed in the last 24 h:** median spread 9.3 bps (was ~3.8), depth within
+10 bps $1.5k (was $7k), lead-lag correlation 0.06 (was 0.28 to 0.35), and gaps over 10 bps now
+lose 14.5 bps net (27% winners; gross -10.6). The signal is not just weak but backwards, which
+points at a thin book (noisy mid) or a stale reference rather than a new edge. To check at Day 5:
+whether it persists, and whether the reference feed itself changed.
 
 ## Day 3 review (2026-09-28; the latest report is from 2026-09-27 05:01, 52 h of data)
 
