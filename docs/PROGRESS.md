@@ -3,7 +3,7 @@
 The project log for Profit Mode. Updated at the end of every work session. Live numbers are in the
 reports repo (`opadips/jev-trader-reports`, README), refreshed hourly by the server.
 
-**Last updated:** 2026-09-29
+**Last updated:** 2026-09-30
 
 ## Where we are
 
@@ -156,6 +156,37 @@ continues unchanged as the control. Nothing trades; no money is at risk.
 | 2026-09-28 | Research the other busy Kuru markets with the same baseline, no per-market tuning; MON-USDC keeps recording through day 7 as the control; Jev v3 frozen | you |
 | 2026-09-28 | Markets: cbBTC/USDC, WETH/USDC, XAUt0/USDC (the only other Kuru markets that traded in the survey); books every 2 blocks to respect the public RPC limit | agreed |
 | 2026-09-28 | Storage: all recordings together grow ~800 MB a day (the extra markets ~550 of it); accepted for up to 10 days (to ~2026-10-08), then stop or trim the extra markets | you |
+
+## Day 5 check (2026-09-30 04:20 UTC, 49 h of the extra markets)
+
+Recorders healthy (extra markets 291k samples each, 1 request error; control 2 read errors in 49 h,
+1,721 skipped heads, 96 Jev errors of 11,027 calls). Disk 15 GB free, data 2.3 GB (+0.7 GB a day).
+
+**The Day 4 change on MON-USDC was not a thin book: Kuru's activity collapsed on every market.**
+The on-chain survey (independent of our recorders) at 03:34 UTC agrees with them:
+
+| Market | $/h on 09-26 | 09-28 | 09-29 | survey now |
+|---|---|---|---|---|
+| MON/USDC | 4.3M | 1.2M | 102k | 28k (475 trades/h, 5 makers) |
+| cbBTC/USDC | | 190k | 36k | 9k (76/h) |
+| WETH/USDC | | 228k | 61k | 6k (31/h) |
+| XAUt0/USDC | | 58k | 11k | 0.6k (14/h) |
+
+MON-USDC spread is now ~15 bps and depth within 10 bps ~$1k; the others' spreads and depth held
+(3 to 6 bps, $5k to $60k) but almost nobody trades. Cause unknown from our data.
+
+**Still no edge on any market.** Day 09-29: no gaps over 5 bps on the three new markets (2 bps gaps
+lose 4.4 to 7.2 bps net; 0 of 54 lag variants positive on each); resting orders +0.28 (cbBTC),
+-0.10 (WETH), +0.17 (XAUt0) bps before gas at 33 blocks, gas ~2 bps a quote; quoting variants
+positive on unseen data only 12/60, 0/60, 1/60 with negative chosen results. Control: gaps over 20
+bps 14 trades at -5.3 bps net; lead-lag corr back to 0.20; reference feeds unchanged (Bybit, OKX,
+Coinbase live; Binance never quotes MON). Jev v3 still worse than the lead rule (log loss 1.19 vs
+0.93).
+
+**Consequence for the plan:** a few days of near-empty markets say little about a normal market and
+there is nothing to trade against. Days 09-25 to 09-28 are the busy sample; the day 7 checkpoint still
+happens, but will be read as "no edge in a quiet market", not a final verdict. If activity does
+not return, extending the recording past day 7 is worth more than the extra markets.
 
 ## Day 4 check (2026-09-29 04:00 UTC, 25 h of the extra markets)
 
