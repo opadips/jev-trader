@@ -3,7 +3,7 @@
 The project log for Profit Mode. Updated at the end of every work session. Live numbers are in the
 reports repo (`opadips/jev-trader-reports`, README), refreshed hourly by the server.
 
-**Last updated:** 2026-09-30
+**Last updated:** 2026-10-02
 
 ## Where we are
 
@@ -156,6 +156,39 @@ continues unchanged as the control. Nothing trades; no money is at risk.
 | 2026-09-28 | Research the other busy Kuru markets with the same baseline, no per-market tuning; MON-USDC keeps recording through day 7 as the control; Jev v3 frozen | you |
 | 2026-09-28 | Markets: cbBTC/USDC, WETH/USDC, XAUt0/USDC (the only other Kuru markets that traded in the survey); books every 2 blocks to respect the public RPC limit | agreed |
 | 2026-09-28 | Storage: all recordings together grow ~800 MB a day (the extra markets ~550 of it); accepted for up to 10 days (to ~2026-10-08), then stop or trim the extra markets | you |
+
+## Day 7 and 8 check (2026-10-02 03:00 UTC, 96 h of the extra markets)
+
+Recorders healthy (extra markets 574k samples each, 1 request error; control 3 read errors in 96 h,
+3,795 skipped heads, 125 Jev errors of 21,726 calls). Two transient `git fetch` failures in the
+agent on 10-01 (16:59, 17:03), nothing lost.
+
+**Disk needs a look.** Data is 3.6 GB (+0.6 GB a day, as planned), but free space fell from 14 GB
+to 11 GB between 10-01 10:42 and 14:51 while our data grew 0.1 GB: something else on the shared
+server took ~3 GB. At our rate the 10-day plan (to ~10-08) ends near 7 GB free, if nothing else grows.
+
+**Activity partly back, still far below 09-26:** survey 10-01 04:26 UTC: MON/USDC $159k/h
+(1,208 trades/h), cbBTC $55k/h, WETH $30k/h, XAUt0 $0.9k/h. MON-USDC spread ~18 bps, depth within
+10 bps ~$0.5k.
+
+**Still no edge anywhere, now over 5 full days on the extra markets' last 2:**
+- cbBTC / WETH / XAUt0, days 09-30 and 10-01: no gaps over 5 bps; the few 2 bps gaps lose 6.6 to
+  10.4 bps net; 0 of 54 lag variants positive on every one of the 6 market-days. Resting orders
+  earn +1.6, +1.5, +0.5 bps at 33 blocks before gas (new: positive) against ~2.4 bps gas per quote
+  placed, so still negative once gas is paid. Quoting variants positive on unseen data: 25/60 and
+  17/60 on 09-30, then 1/60 and 1/60 on 10-01: it does not repeat.
+- Control: gaps over 20 bps lose 27 bps net (10-01: 209 trades), resting orders -4.96 bps, lead-lag
+  corr 0.19. The reference signal is backwards on a thin, wide book.
+- **Jev v3 (6 days, ~2,100 held-out forecasts a day):** log loss 1.13 to 1.27 every day, worse than
+  the lead rule (0.86 to 1.07), the prior and the logistic baseline on all 6 days. Last 24 h: jev
+  1.236, lead 1.019, logistic 1.014; lean moves +1.0 bps vs ~23 bps a taker round trip. By the
+  rule in docs/PROFIT.md it gets no role.
+
+**Day 7 checkpoint:** no market has an edge that survives costs and unseen data, and Jev v3 does
+not beat simple baselines. The quiet period means this is "no edge in a quiet market" more than a
+final verdict on Kuru. Options for you: stop at ~10-08 as planned, or keep the control running
+longer to see a busy day again (cheap: ~0.25 GB a day for MON-USDC alone if the extra markets are
+stopped).
 
 ## Day 5 check (2026-09-30 04:20 UTC, 49 h of the extra markets)
 
