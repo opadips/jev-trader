@@ -10,7 +10,9 @@
 #              then each extra market's database in data/markets/), then at most one finished UTC day
 #              per market not yet analyzed (kept in days/). Every heavy step has its own time
 #              limit, and timings and errors go to agent.txt, so a slow step cannot silence the page.
-#   3. tidy    keep the recorder logs under 50 MB
+#   3. tidy    keep the recorder logs under 50 MB, and guard the disk (see disk_guard): old exchange
+#              ticks are trimmed, and if free space still runs low the extra markets are stopped
+#              first, then deleted, and the control recorder is the very last thing to stop
 #
 # It never runs commands that arrive through git other than the repo's own install and tests.
 # Everything is wrapped in main() so a deploy that rewrites this file cannot corrupt the running copy.
@@ -23,7 +25,9 @@ main() {
   REPORT_EVERY_MIN="${REPORT_EVERY_MIN:-60}"
   HEALTH_URL="${HEALTH_URL:-http://127.0.0.1:3101/health}"
   # reset-failed first: after repeated start failures systemd refuses a plain restart
-  RESTART_CMD="${RESTART_CMD:-systemctl --user reset-failed jev-recorder jev-markets 2>/dev/null; systemctl --user restart jev-recorder jev-markets}"
+  # (empty: restart_services, which leaves out whatever the disk guard has switched off)
+  RESTART_CMD="${RESTART_CMD:-}"
+  SYSTEMCTL="${SYSTEMCTL:-systemctl --user}"
   INSTALL_UNITS="${INSTALL_UNITS:-1}"
   STATUS_CMD="${STATUS_CMD:-systemctl --user status jev-recorder jev-markets jev-agent.timer --no-pager -l -n 30}"
   MARKETS_HEALTH_URL="${MARKETS_HEALTH_URL:-http://127.0.0.1:3102/health}"
@@ -46,6 +50,7 @@ main() {
   install_units
   deploy
   tidy
+  disk_guard
   report
 }
 
@@ -86,7 +91,7 @@ deploy() {
   git checkout -q -f --detach "$target"
   if "$BUN" install --frozen-lockfile >"$STATE_DIR/deploy.log" 2>&1 && "$BUN" test >>"$STATE_DIR/deploy.log" 2>&1; then
     install_units
-    bash -c "$RESTART_CMD"
+    if [[ -n "$RESTART_CMD" ]]; then bash -c "$RESTART_CMD"; else restart_services; fi
     echo "$NOW" >"$STATE_DIR/deployed_at"
     rm -f "$STATE_DIR/bad_commit"
     deploy_record "$target" "$DEPLOY_BRANCH" "$NOW" "ok" "deployed ${target:0:7}, tests passed, recorder restarted"
@@ -124,7 +129,7 @@ install_units() {
   done
   [[ "$changed" == "1" ]] && systemctl --user daemon-reload || true
   # a newly added service is enabled and started once; a later deliberate stop is left alone
-  systemctl --user is-enabled -q jev-markets 2>/dev/null || systemctl --user enable --now -q jev-markets || true
+  [[ -f "$STATE_DIR/markets_off" ]] || systemctl --user is-enabled -q jev-markets 2>/dev/null || systemctl --user enable --now -q jev-markets || true
 }
 
 tidy() {
@@ -135,6 +140,68 @@ tidy() {
       tail -n 20000 "$f" >"$f.tmp" && cat "$f.tmp" >"$f" && rm -f "$f.tmp"
     fi
   done
+}
+
+# Services to (re)start: the recorders, minus any the disk guard switched off.
+restart_services() {
+  local svc list=()
+  for svc in jev-recorder jev-markets; do
+    [[ -f "$STATE_DIR/${svc#jev-}_off" ]] || list+=("$svc")
+  done
+  (( ${#list[@]} )) || return 0
+  $SYSTEMCTL reset-failed "${list[@]}" 2>/dev/null || true
+  $SYSTEMCTL restart "${list[@]}"
+}
+
+guard_log() { echo "$(date -u +%FT%TZ) $*" >>"$STATE_DIR/guard.log"; }
+
+# Keep the shared server's disk from filling, without anyone logging in. By free space (guard.ts tier):
+#   always  every 6 h: drop exchange ticks older than 24 h from the extra markets (nothing reads them)
+#   1  < 9 GB free: same for the control's database, every hour
+#   2  < 6 GB: stop the extra markets (their data stays)
+#   3  < 3.5 GB: delete the extra markets' databases (their finished days are kept in the reports repo)
+#   4  < 2 GB: stop the control recorder as well (its database is never deleted)
+# The control restarts by itself once 6 GB are free again; the extra markets stay off until someone
+# removes data/agent/markets_off and starts jev-markets. Every action is in data/agent/guard.log.
+disk_guard() {
+  local free_kb tier db
+  free_kb="$(${DF_CMD:-df -Pk} "$REPO_DIR" | awk 'NR==2{print $4}')"
+  tier="$(cd "$REPO_DIR" && "$BUN" run src/profit/guard.ts tier "$free_kb" 2>/dev/null || echo 0)"
+  [[ "$tier" =~ ^[0-4]$ ]] || tier=0
+
+  local every=360; [[ "$tier" -ge 1 ]] && every=60
+  if [[ ! -f "$STATE_DIR/last_prune" || -n "$(find "$STATE_DIR/last_prune" -mmin +"$every")" ]]; then
+    local dbs=()
+    for db in "$REPO_DIR"/data/markets/*.sqlite; do [[ -f "$db" ]] && dbs+=("$db"); done
+    [[ "$tier" -ge 1 && -f "$REPO_DIR/data/profit.sqlite" ]] && dbs+=("$REPO_DIR/data/profit.sqlite")
+    if (( ${#dbs[@]} )); then
+      local out
+      out="$(cd "$REPO_DIR" && timeout 900 nice -n 15 "$BUN" run src/profit/guard.ts prune 24 "${dbs[@]}" 2>&1 | sed "s|$REPO_DIR/||" | tr '\n' ';')" || out="prune failed: $out"
+      guard_log "tier $tier, $((free_kb / 1048576)) GB free; $out"
+    fi
+    touch "$STATE_DIR/last_prune"
+  fi
+
+  if [[ "$tier" -ge 2 && ! -f "$STATE_DIR/markets_off" ]]; then
+    touch "$STATE_DIR/markets_off"
+    $SYSTEMCTL disable --now jev-markets 2>/dev/null || true
+    guard_log "tier $tier, $((free_kb / 1048576)) GB free: stopped the extra markets (their data is kept)"
+  fi
+  if [[ "$tier" -ge 3 ]] && ls "$REPO_DIR"/data/markets/*.sqlite* >/dev/null 2>&1; then
+    $SYSTEMCTL disable --now jev-markets 2>/dev/null || true
+    rm -f "$REPO_DIR"/data/markets/*.sqlite*
+    guard_log "tier $tier, $((free_kb / 1048576)) GB free: deleted the extra markets' databases"
+  fi
+  if [[ "$tier" -ge 4 && ! -f "$STATE_DIR/recorder_off" ]]; then
+    touch "$STATE_DIR/recorder_off"
+    $SYSTEMCTL disable --now jev-recorder 2>/dev/null || true
+    guard_log "tier $tier, $((free_kb / 1048576)) GB free: stopped the control recorder (its data is kept)"
+  fi
+  if [[ "$tier" -le 1 && -f "$STATE_DIR/recorder_off" ]]; then
+    rm -f "$STATE_DIR/recorder_off"
+    $SYSTEMCTL enable --now jev-recorder 2>/dev/null || true
+    guard_log "tier $tier, $((free_kb / 1048576)) GB free: restarted the control recorder"
+  fi
 }
 
 # Remove anything that looks like a TypeSafe key, and the configured key itself.
@@ -189,6 +256,10 @@ report() {
   {
     echo "run $NOW, code $(git -C "$REPO_DIR" rev-parse --short HEAD)"
     echo "disk: $(df -h "$REPO_DIR" | tail -1 | awk '{print $4 " free of " $2 " (" $5 " used)"}'), data: $(du -sh "$REPO_DIR/data" 2>/dev/null | cut -f1)"
+    echo "memory: $(free -m | awk '/^Mem:/{print $7 " MB available of " $2}')"
+    if [[ -s "$STATE_DIR/guard.log" ]]; then echo "disk guard:"; tail -n 4 "$STATE_DIR/guard.log"; fi
+    if [[ -f "$STATE_DIR/markets_off" ]]; then echo "EXTRA MARKETS ARE OFF (low disk)"; fi
+    if [[ -f "$STATE_DIR/recorder_off" ]]; then echo "CONTROL RECORDER IS OFF (low disk)"; fi
     if [[ -s "$STATE_DIR/errors.log" ]]; then echo "recent agent errors:"; tail -n 5 "$STATE_DIR/errors.log"; fi
   } >agent.txt
   if ! curl -s --max-time 5 -o health.json "$HEALTH_URL"; then echo null >health.json; fi

@@ -414,6 +414,36 @@ describe("trade logs", () => {
   });
 });
 
+describe("disk guard", () => {
+  test("tiers by free space, and a failed read does nothing", async () => {
+    const { diskTier } = await import("./guard");
+    const gb = (x: number) => x * 1024 * 1024;
+    expect([20, 9, 8.9, 6, 5.9, 3.5, 3.4, 2, 1.9, 0.1].map((x) => diskTier(gb(x)))).toEqual([0, 0, 1, 1, 2, 2, 3, 3, 4, 4]);
+    expect(diskTier(NaN)).toBe(0);
+  });
+
+  test("pruning ticks keeps recent ticks and everything else", async () => {
+    const { pruneTicks } = await import("./guard");
+    const { mkdtempSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const path = `${mkdtempSync(`${tmpdir()}/guard-`)}/m.sqlite`;
+    const s = new Store(path);
+    const now = 1_800_000_000_000, hour = 3_600_000;
+    const { books } = synth({ rows: 50 });
+    books.forEach((b) => s.addBook(b));
+    for (let i = 0; i < 45_000; i++) s.addTick({ ts: now - 30 * hour + i, venue: "okx", bid: 1, ask: 2, bidSize: 1, askSize: 1 }); // old, > 2 batches
+    for (let i = 0; i < 100; i++) s.addTick({ ts: now - hour + i, venue: "okx", bid: 1, ask: 2, bidSize: 1, askSize: 1 });
+    s.flush();
+    expect(s.count("ref_ticks")).toBe(45_100);
+    expect(pruneTicks(path, 24, now)).toBe(45_000);
+    expect(s.count("ref_ticks")).toBe(100);
+    expect(s.count("books")).toBe(books.length);
+    expect(pruneTicks(path, 24, now)).toBe(0);
+    expect(pruneTicks(`${path}.missing`, 24, now)).toBe(0);
+    s.close();
+  });
+});
+
 describe("market survey", () => {
   const word = (x: bigint) => x.toString(16).padStart(64, "0");
   const log = (address: string, isBuy: number, price: number, size: number, taker: number) => ({
