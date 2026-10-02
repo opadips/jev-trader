@@ -111,6 +111,15 @@ Tell the cloud session it is up; it will attach the reports repo and read it fro
 - **Extra markets:** the agent installs, enables and starts `jev-markets` (the cbBTC, WETH and
   XAUt0 recorder, `src/profit/multi-recorder.ts`) by itself; health on `127.0.0.1:3102/health`
   (set `MARKETS_HEALTH_PORT` in `.env` if another service owns 3102), log in `data/markets.log`.
+- **Disk guard:** the agent keeps the disk from filling by itself (`disk_guard` in `deploy/vps-agent.sh`).
+  Every 6 h it deletes exchange ticks older than 24 h from the extra markets' databases (nothing
+  reads that table). Below 9 GB free it does the same to the control's database hourly; below 6 GB
+  it stops the extra markets (data kept); below 3.5 GB it deletes their databases (finished days
+  stay in the reports repo); below 2 GB it stops the control recorder too (its database is never
+  deleted), and starts it again once 6 GB are free. Actions are in `data/agent/guard.log` and the
+  "disk guard" lines of `agent.txt`. To bring the extra markets back after a stop:
+  `rm ~/jev-trader/data/agent/markets_off && systemctl --user enable --now jev-markets`.
+  Memory: each recorder is capped at 512 MB by its unit (they use ~160 MB); `agent.txt` shows free RAM.
 - **Pause:** `systemctl --user stop jev-agent.timer jev-recorder jev-markets`. **Resume:** `start` instead of `stop`.
 - **Remove everything:** as `jev`, `systemctl --user disable --now jev-agent.timer jev-recorder jev-markets`;
   then as root, `loginctl disable-linger jev && userdel -r jev`, and delete the deploy key on GitHub.

@@ -155,7 +155,18 @@ continues unchanged as the control. Nothing trades; no money is at risk.
 | 2026-09-27 | One branch: `vps` only; the session's old working branch `claude/funny-bohr-xvrfex` is retired (nothing pushes to it) | you |
 | 2026-09-28 | Research the other busy Kuru markets with the same baseline, no per-market tuning; MON-USDC keeps recording through day 7 as the control; Jev v3 frozen | you |
 | 2026-09-28 | Markets: cbBTC/USDC, WETH/USDC, XAUt0/USDC (the only other Kuru markets that traded in the survey); books every 2 blocks to respect the public RPC limit | agreed |
+| 2026-10-02 | Disk and memory managed by the agent itself, right up to the last day (guard tiers in docs/VPS-SETUP.md); I check the reports daily until the stop | you |
 | 2026-09-28 | Storage: all recordings together grow ~800 MB a day (the extra markets ~550 of it); accepted for up to 10 days (to ~2026-10-08), then stop or trim the extra markets | you |
+
+## Disk guard (2026-10-02)
+
+Free space fell 3 GB in four hours on 10-01 for a reason outside our data, so the agent now guards
+the disk without anyone logging in: exchange ticks older than 24 h are trimmed from the extra
+markets every 6 h (the largest table, never read by any analysis; growth should drop sharply), and
+if free space still runs low it escalates: under 9 GB the control's ticks are trimmed hourly, under
+6 GB the extra markets stop, under 3.5 GB their databases are deleted (finished days stay in the
+reports), under 2 GB the control stops too and restarts at 6 GB. Nothing changes in the control's
+measurements. RAM: recorders use ~160 MB each against a 512 MB cap; free RAM is in `agent.txt`.
 
 ## Day 7 and 8 check (2026-10-02 03:00 UTC, 96 h of the extra markets)
 
