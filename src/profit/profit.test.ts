@@ -422,6 +422,32 @@ describe("disk guard", () => {
     expect(diskTier(NaN)).toBe(0);
   });
 
+  test("a store waits for another writer instead of crashing, and keeps rows if a flush fails", async () => {
+    const { mkdtempSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const path = `${mkdtempSync(`${tmpdir()}/lock-`)}/m.sqlite`;
+    const s = new Store(path);
+    const { books } = synth({ rows: 5 });
+    // another process holds the write lock for ~700 ms (as the disk guard does while trimming)
+    const holder = Bun.spawn([process.execPath, "-e", `const {Database}=require("bun:sqlite");const d=new Database(${JSON.stringify(path)});d.exec("PRAGMA busy_timeout=5000; BEGIN IMMEDIATE");console.log("locked");await Bun.sleep(700);d.exec("COMMIT")`], { stdout: "pipe" });
+    await holder.stdout.getReader().read();
+    books.forEach((b) => s.addBook(b));
+    expect(s.flush()).toBe(5); // waited for the lock
+    await holder.exited;
+    expect(s.count("books")).toBe(5);
+
+    // a flush that fails puts its rows back
+    const db = (s as any).db;
+    const real = db.transaction.bind(db);
+    db.transaction = () => () => { throw new Error("boom"); };
+    synth({ rows: 8 }).books.slice(5).forEach((b) => s.addBook(b));
+    expect(() => s.flush()).toThrow("boom");
+    db.transaction = real;
+    expect(s.flush()).toBe(3);
+    expect(s.count("books")).toBe(8);
+    s.close();
+  });
+
   test("pruning ticks keeps recent ticks and everything else", async () => {
     const { pruneTicks } = await import("./guard");
     const { mkdtempSync } = await import("node:fs");

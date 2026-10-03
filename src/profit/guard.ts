@@ -30,12 +30,12 @@ export function pruneTicks(path: string, keepHours: number, now = Date.now()): n
   try {
     db.exec("PRAGMA busy_timeout = 10000");
     const cutoff = now - keepHours * 3_600_000;
-    const del = db.prepare("DELETE FROM ref_ticks WHERE rowid IN (SELECT rowid FROM ref_ticks WHERE ts < ? LIMIT 20000)");
+    const del = db.prepare("DELETE FROM ref_ticks WHERE rowid IN (SELECT rowid FROM ref_ticks WHERE ts < ? LIMIT 5000)");
     let total = 0;
     for (;;) {
       const n = del.run(cutoff).changes;
       total += n;
-      if (n < 20000) break;
+      if (n < 5000) break;
       db.exec("PRAGMA wal_checkpoint(PASSIVE)");
     }
     if (total > 0 && path !== ":memory:") db.exec("PRAGMA wal_checkpoint(TRUNCATE)"); // briefly waits for the recorder, so only when needed

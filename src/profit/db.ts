@@ -69,6 +69,9 @@ CREATE TABLE IF NOT EXISTS predictions (
 );
 `;
 
+/** Most rows kept in memory while the database refuses writes. */
+const MAX_QUEUE = 500_000;
+
 /**
  * The research store. Writes are queued and flushed in one transaction every `flushMs`, so the
  * block loop never waits on disk. WAL mode lets the analyzer read while the recorder writes.
@@ -83,7 +86,8 @@ export class Store {
     if (path !== ":memory:" && !opts.readonly) mkdirSync(dirname(path), { recursive: true });
     this.db = new Database(path, opts.readonly ? { readonly: true } : { create: true });
     if (!opts.readonly) {
-      this.db.exec("PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL;");
+      // wait for another writer (the agent's disk guard) instead of failing on a lock
+      this.db.exec("PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA busy_timeout = 10000;");
       this.db.exec(SCHEMA);
     }
     this.insBook = opts.readonly ? null : this.db.prepare(
@@ -94,7 +98,9 @@ export class Store {
       "INSERT INTO ref_ticks VALUES ($ts, $venue, $bid, $ask, $bidSize, $askSize)");
     this.insPred = opts.readonly ? null : this.db.prepare(
       "INSERT OR REPLACE INTO predictions VALUES ($block, $ts, $model, $horizon, $flatBps, $pUp, $pDown, $pFlat, $choice, $confidence, $latencyMs, $inputTokens, $state, $error)");
-    if (!opts.readonly && opts.flushMs) this.timer = setInterval(() => this.flush(), opts.flushMs);
+    if (!opts.readonly && opts.flushMs) this.timer = setInterval(() => {
+      try { this.flush(); } catch (e) { console.error(new Date().toISOString(), `store flush failed, retrying: ${(e as Error).message}`); }
+    }, opts.flushMs);
   }
 
   setMeta(key: string, value: unknown) {
@@ -135,7 +141,12 @@ export class Store {
   flush(): number {
     if (!this.queue.length) return 0;
     const q = this.queue; this.queue = [];
-    this.db.transaction(() => { for (const f of q) f(); })();
+    try {
+      this.db.transaction(() => { for (const f of q) f(); })();
+    } catch (e) {
+      this.queue = q.concat(this.queue).slice(-MAX_QUEUE); // keep the rows for the next flush, bounded
+      throw e;
+    }
     return q.length;
   }
 
