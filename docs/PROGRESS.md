@@ -168,6 +168,13 @@ if free space still runs low it escalates: under 9 GB the control's ticks are tr
 reports), under 2 GB the control stops too and restarts at 6 GB. Nothing changes in the control's
 measurements. RAM: recorders use ~160 MB each against a 512 MB cap; free RAM is in `agent.txt`.
 
+**Disk guard, first day (2026-10-03):** data grew 0.2 GB over 24 h (was 0.65), so trimming the ticks
+works; free disk 10 GB, RAM 5.3 GB free of 7.8, recorders ~160 MB each. One bug found: the extra
+markets' recorder crashed and was restarted by systemd at the start of each tick trim (10:06,
+16:11, 22:17 UTC), losing ~5 s of data each time, because the recorder did not wait for the
+trim's database lock. Fixed: recorders now wait for the lock and keep rows if a write fails; trims
+use smaller batches.
+
 ## Day 7 and 8 check (2026-10-02 03:00 UTC, 96 h of the extra markets)
 
 Recorders healthy (extra markets 574k samples each, 1 request error; control 3 read errors in 96 h,
