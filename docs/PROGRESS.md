@@ -175,6 +175,13 @@ markets' recorder crashed and was restarted by systemd at the start of each tick
 trim's database lock. Fixed: recorders now wait for the lock and keep rows if a write fails; trims
 use smaller batches.
 
+**2026-10-04 check:** the lock fix held: both recorders ran 23.5 h without a restart through three tick
+trims. Data 4.2 GB (+0.4 GB a day), free disk 9.6 GB (the guard's first tier starts below 9 GB and only
+trims the control's ticks), RAM 5.4 GB free, recorders ~165 MB (systemd shows ~350 MB including
+reclaimable file cache). Still no edge: on the extra markets 12 of 54 lag variants looked positive
+for WETH on 10-02 but on 2 to 4 trades each (noise; the tuned pick made no trades); the control's
+gaps lose 29 bps net (its book is ~19 bps wide with ~$400 of depth, volume $45k/h).
+
 ## Day 7 and 8 check (2026-10-02 03:00 UTC, 96 h of the extra markets)
 
 Recorders healthy (extra markets 574k samples each, 1 request error; control 3 read errors in 96 h,
