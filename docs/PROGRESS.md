@@ -182,6 +182,15 @@ reclaimable file cache). Still no edge: on the extra markets 12 of 54 lag varian
 for WETH on 10-02 but on 2 to 4 trades each (noise; the tuned pick made no trades); the control's
 gaps lose 29 bps net (its book is ~19 bps wide with ~$400 of depth, volume $45k/h).
 
+**2026-10-05 check:** healthy and no restarts for 47 h. Data 4.7 GB (+0.4 GB a day), free disk 9.1 GB
+(tier 1 starts below 9 GB), RAM 5.4 GB free. systemd shows both recorders at their 512 MB cap, but
+that is file cache from the databases (resident memory is flat at 163 to 168 MB, no skipped heads on
+the extra markets), and the kernel reclaims it. Data quality to verify tomorrow: since 00:00 UTC
+today XAUt0 shows a dislocation (264 reference-gap trades at -310 bps net, resting orders -62 bps)
+and the control's 24 h spread p90 is 376 bps, although XAUt0's median spread (2.8 bps) and mid
+(~4,140) are normal. It looks like a stretch of one-sided or empty thin books; the full-day files
+for 10-05 will show it. These are losses, not an edge, but they distort the cross-market averages.
+
 ## Day 7 and 8 check (2026-10-02 03:00 UTC, 96 h of the extra markets)
 
 Recorders healthy (extra markets 574k samples each, 1 request error; control 3 read errors in 96 h,
