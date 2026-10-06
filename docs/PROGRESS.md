@@ -191,6 +191,16 @@ and the control's 24 h spread p90 is 376 bps, although XAUt0's median spread (2.
 (~4,140) are normal. It looks like a stretch of one-sided or empty thin books; the full-day files
 for 10-05 will show it. These are losses, not an edge, but they distort the cross-market averages.
 
+**2026-10-06 check:** healthy; both recorders up 71 h with no restarts. Data 5.1 GB, free disk 8.3 GB
+(75% used; it fell 0.8 GB since yesterday against 0.4 GB of our own growth, so other tenants are
+using the rest): the guard is in tier 1 (trimming the control's ticks hourly); the 6 GB tier that
+stops the extra markets would be reached around 10-09 to 10-10 at this rate. RAM 5.3 GB free.
+XAUt0's book has degraded: its spread p90 is 19,980 bps (one side is dust) and it logged 223 read
+errors, so its "resting order +398 bps" and "gaps 993 an hour" are artifacts of a meaningless mid,
+not an edge; the cross-market tables now flag such markets (spread p90 over 100 bps). cbBTC and
+WETH: no gaps, resting orders +0.7 bps before ~2.1 bps of gas. Control: gaps lose 26 bps net.
+No edge anywhere.
+
 ## Day 7 and 8 check (2026-10-02 03:00 UTC, 96 h of the extra markets)
 
 Recorders healthy (extra markets 574k samples each, 1 request error; control 3 read errors in 96 h,
