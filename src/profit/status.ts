@@ -10,6 +10,9 @@ import { parseArgs } from "node:util";
 export type GateState = "pass" | "fail" | "collecting" | "no data";
 export interface Gate { name: string; state: GateState; detail: string }
 
+/** Spread p90 above which a market's book counts as degenerate in the cross-market tables. */
+export const DEGENERATE_SPREAD_BPS = 100;
+
 /** Minimum recording before a gate is judged at all. */
 export const MIN_HOURS = 24;
 
@@ -104,7 +107,9 @@ export interface MarketResult { name: string; report: any; backtest: any }
  * at the touch, gas and fees on both legs, on a $5 order) and the backtests' unseen part.
  */
 export function renderCompare(markets: MarketResult[]): string[] {
-  const ok = markets.filter((m) => m.report && !m.report.note);
+  // A book with a dust order on one side has an absurd mid; its gap and resting-order figures are artifacts.
+  const degenerate = (r: any) => (r?.market?.spreadBps?.p90 ?? 0) > DEGENERATE_SPREAD_BPS;
+  const ok = markets.filter((m) => m.report && !m.report.note).map((m) => (degenerate(m.report) ? { ...m, name: `${m.name} ⚠️` } : m));
   if (!ok.length) return ["No market has enough data yet.", ""];
   const f = (x: unknown, d = 2) => (typeof x === "number" && Number.isFinite(x) ? x.toFixed(d) : "n/a");
   const k = (x: unknown) => (typeof x === "number" && Number.isFinite(x) ? (x >= 1e6 ? `${(x / 1e6).toFixed(1)}M` : x >= 1e3 ? `${(x / 1e3).toFixed(0)}k` : x.toFixed(0)) : "n/a");
@@ -131,6 +136,9 @@ export function renderCompare(markets: MarketResult[]): string[] {
     const bestAt = (usd: number) => { const v = (lag?.all ?? []).filter((x: any) => x[0]?.sizeUsd === usd).map((x: any) => x[2]).filter((x: any) => typeof x === "number"); return v.length ? f(Math.max(...v), 3) : "n/a"; };
     const pos = (fam: any) => (fam ? `${fam.variantsPositiveOnTest}/${fam.variants}` : "n/a");
     L.push(`| ${name} | ${f(a10?.perHour, 1)} / ${f(a20?.perHour, 1)} | ${f(a20?.grossBps)} | ${f(a10?.netBps)} (${win(a10)}) / ${f(a20?.netBps)} (${win(a20)}) | ${f(m33?.captureBps)} - ${f(m33?.adverseBps)} = ${f(m33?.netBps)} | ${bestAt(5)} / ${bestAt(50)} / ${bestAt(250)} | ${f(lag?.chosen?.test?.pnlPerHourUsd, 3)} (${pos(lag)}) / ${f(quote?.chosen?.test?.pnlPerHourUsd, 3)} (${pos(quote)}) |`);
+  }
+  for (const { name, report: r } of ok) {
+    if (degenerate(r)) L.push("", `⚠️ ${name.replace(" ⚠️", "")}: its spread p90 is ${f(r.market.spreadBps.p90, 0)} bps (one side of the book is dust), so its price, gap and resting-order figures are artifacts, not edge.`);
   }
   L.push("", "Same baseline for every market, no per-market tuning. \"Best unseen\" is the best of all settings on the unseen part, so it flatters; \"chosen\" is the setting picked on the tuning part, scored on the unseen part. Books of the extra markets are read every 2 blocks, so their 1-block figures are measured at 2 blocks (\"@2\") and their taker entries land 2 blocks late, never earlier than on the control. A market is only interesting if its net edge is positive and repeats day after day.", "");
   return L;

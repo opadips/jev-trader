@@ -302,6 +302,13 @@ describe("status page", () => {
     expect(rows).toContain("| cbBTC/USDC | 324k | 1036 | 2.00 (1.00 / 4.00) | 3k | 167k | 95% | 2 (0.300) | 0.05@2 / 0.15 / 0.25 / 0.50 / 1.00 | 0.0010, 2.00 |");
     expect(rows).toContain("| cbBTC/USDC | 3.0 / 1.0 | 9.00 | -1.00 (40%) / 5.00 (60%) | 1.00 - 1.50 = -0.50 | 0.020 / -0.300 / n/a | -0.010 (1/3) / -0.200 (0/2) |");
 
+    // a market whose book is mostly dust gets flagged instead of read as an edge
+    const dust = { ...r, market: { ...r.market, spreadBps: { p10: 3, p50: 3, p90: 19_980 } } };
+    const flagged = renderCompare([{ name: "XAUt0/USDC", report: dust, backtest: bt }]).join("\n");
+    expect(flagged).toContain("| XAUt0/USDC ⚠️ |");
+    expect(flagged).toContain("one side of the book is dust");
+    expect(rows.join("\n")).not.toContain("⚠️");
+
     expect(renderMarketsHealth(null)[0]).toContain("no health response");
     const h = renderMarketsHealth({ ok: true, uptimeS: 3600, sampleEvery: 2, stats: { samples: 10, skipped: 0, requestErrors: 1, logErrors: 0 },
       markets: [{ pair: "WETH/USDC", rows: 9, prints: 4, readErrors: 0, lastBookAgeMs: 1500, lastSpreadBps: 1.9, venues: [{ venue: "okx", live: true }, { venue: "bybit", live: false }] }] });
