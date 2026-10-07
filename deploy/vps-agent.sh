@@ -256,6 +256,8 @@ report() {
   {
     echo "run $NOW, code $(git -C "$REPO_DIR" rev-parse --short HEAD)"
     echo "disk: $(df -h "$REPO_DIR" | tail -1 | awk '{print $4 " free of " $2 " (" $5 " used)"}'), data: $(du -sh "$REPO_DIR/data" 2>/dev/null | cut -f1)"
+    echo "data by item: $(cd "$REPO_DIR/data" 2>/dev/null && du -sh -- * 2>/dev/null | sort -h | tr '\t\n' '  ')"
+    echo "home: $(timeout 30 du -sh "$HOME" 2>/dev/null | cut -f1) in total; $(timeout 30 du -sh "$HOME/.bun" "$HOME/.cache" "$HOME/.local" 2>/dev/null | tr '\t\n' '  ')"
     echo "memory: $(free -m | awk '/^Mem:/{print $7 " MB available of " $2}')"
     if [[ -s "$STATE_DIR/guard.log" ]]; then echo "disk guard:"; tail -n 4 "$STATE_DIR/guard.log"; fi
     if [[ -f "$STATE_DIR/markets_off" ]]; then echo "EXTRA MARKETS ARE OFF (low disk)"; fi
