@@ -201,6 +201,15 @@ not an edge; the cross-market tables now flag such markets (spread p90 over 100 
 WETH: no gaps, resting orders +0.7 bps before ~2.1 bps of gas. Control: gaps lose 26 bps net.
 No edge anywhere.
 
+**2026-10-07 check:** both recorders up 24 h since the last deploy, no crashes; one transient agent push
+failure (10-06 12:59). **Disk is the open problem:** free space fell from 7.8 GB to 6.3 GB in a day
+(data +0.5 GB, so ~1 GB went to other tenants); the 6 GB tier that stops the extra markets is
+hours away, by design (their data stays; the control keeps recording). The agent report now lists
+the size of each data item and of the home directory, to show who uses the space. XAUt0's book
+recovered (spread p90 3 bps, but 4,654 read errors in 24 h); the control's p90 spread is now 883 bps
+(flagged). cbBTC, WETH, XAUt0: no gaps worth trading, resting orders +0.8, +2.8, -0.5 bps before
+~2 bps gas; control gaps lose 60 bps net. Jev v3 1.07 vs 0.81 for the best baseline. No edge anywhere.
+
 ## Day 7 and 8 check (2026-10-02 03:00 UTC, 96 h of the extra markets)
 
 Recorders healthy (extra markets 574k samples each, 1 request error; control 3 read errors in 96 h,
