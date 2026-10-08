@@ -144,6 +144,7 @@ tidy() {
 
 # Services to (re)start: the recorders, minus any the disk guard switched off.
 restart_services() {
+  [[ -f "$REPO_DIR/deploy/STOP_RECORDING" ]] && return 0
   local svc list=()
   for svc in jev-recorder jev-markets; do
     [[ -f "$STATE_DIR/${svc#jev-}_off" ]] || list+=("$svc")
@@ -164,6 +165,21 @@ guard_log() { echo "$(date -u +%FT%TZ) $*" >>"$STATE_DIR/guard.log"; }
 # The control restarts by itself once 6 GB are free again; the extra markets stay off until someone
 # removes data/agent/markets_off and starts jev-markets. Every action is in data/agent/guard.log.
 disk_guard() {
+  # Stop switch: a deploy/STOP_RECORDING file on the deployed branch keeps both recorders off (the
+  # agent keeps reporting on the data already recorded). Delete the file and push to record again.
+  if [[ -f "$REPO_DIR/deploy/STOP_RECORDING" ]]; then
+    if [[ ! -f "$STATE_DIR/stopped" ]]; then
+      touch "$STATE_DIR/stopped" "$STATE_DIR/markets_off" "$STATE_DIR/recorder_off"
+      $SYSTEMCTL disable --now jev-recorder jev-markets 2>/dev/null || true
+      guard_log "stop switch (deploy/STOP_RECORDING): both recorders stopped, data kept"
+    fi
+    return 0
+  fi
+  if [[ -f "$STATE_DIR/stopped" ]]; then
+    rm -f "$STATE_DIR/stopped" "$STATE_DIR/markets_off" "$STATE_DIR/recorder_off"
+    $SYSTEMCTL enable --now jev-recorder jev-markets 2>/dev/null || true
+    guard_log "stop switch removed: both recorders started again"
+  fi
   local free_kb tier db
   free_kb="$(${DF_CMD:-df -Pk} "$REPO_DIR" | awk 'NR==2{print $4}')"
   tier="$(cd "$REPO_DIR" && "$BUN" run src/profit/guard.ts tier "$free_kb" 2>/dev/null || echo 0)"
@@ -260,8 +276,9 @@ report() {
     echo "home: $(timeout 30 du -sh "$HOME" 2>/dev/null | cut -f1) in total; $(timeout 30 du -sh "$HOME/.bun" "$HOME/.cache" "$HOME/.local" 2>/dev/null | tr '\t\n' '  ')"
     echo "memory: $(free -m | awk '/^Mem:/{print $7 " MB available of " $2}')"
     if [[ -s "$STATE_DIR/guard.log" ]]; then echo "disk guard:"; tail -n 4 "$STATE_DIR/guard.log"; fi
-    if [[ -f "$STATE_DIR/markets_off" ]]; then echo "EXTRA MARKETS ARE OFF (low disk)"; fi
-    if [[ -f "$STATE_DIR/recorder_off" ]]; then echo "CONTROL RECORDER IS OFF (low disk)"; fi
+    if [[ -f "$STATE_DIR/markets_off" ]]; then [[ -f "$STATE_DIR/stopped" ]] || echo "EXTRA MARKETS ARE OFF (low disk)"; fi
+    if [[ -f "$STATE_DIR/stopped" ]]; then echo "RECORDING STOPPED (deploy/STOP_RECORDING); data is kept";
+    elif [[ -f "$STATE_DIR/recorder_off" ]]; then echo "CONTROL RECORDER IS OFF (low disk)"; fi
     if [[ -s "$STATE_DIR/errors.log" ]]; then echo "recent agent errors:"; tail -n 5 "$STATE_DIR/errors.log"; fi
   } >agent.txt
   if ! curl -s --max-time 5 -o health.json "$HEALTH_URL"; then echo null >health.json; fi
