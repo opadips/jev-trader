@@ -3,7 +3,7 @@
 The project log for Profit Mode. Updated at the end of every work session. Live numbers are in the
 reports repo (`opadips/jev-trader-reports`, README), refreshed hourly by the server.
 
-**Last updated:** 2026-10-02
+**Last updated:** 2026-10-08
 
 ## Where we are
 
@@ -157,6 +157,30 @@ continues unchanged as the control. Nothing trades; no money is at risk.
 | 2026-09-28 | Markets: cbBTC/USDC, WETH/USDC, XAUt0/USDC (the only other Kuru markets that traded in the survey); books every 2 blocks to respect the public RPC limit | agreed |
 | 2026-10-02 | Disk and memory managed by the agent itself, right up to the last day (guard tiers in docs/VPS-SETUP.md); I check the reports daily until the stop | you |
 | 2026-09-28 | Storage: all recordings together grow ~800 MB a day (the extra markets ~550 of it); accepted for up to 10 days (to ~2026-10-08), then stop or trim the extra markets | you |
+
+## Verdict at the planned stop (2026-10-08, 14 days of MON-USDC, 10 of the extra markets)
+
+**Does any high-volume Kuru market have a repeatable edge that survives realistic costs and unseen
+data? No.** Measured with the corrected accounting (exit at the touch, gas on both legs, one block of
+latency, queue position, train 60% / test 40%) and no per-market tuning:
+- **cbBTC/USDC, WETH/USDC, XAUt0/USDC:** Kuru follows the reference exchanges within a few blocks and
+  almost never leaves a gap worth taking (0 gaps over 10 bps an hour on most days); the few small
+  gaps lose 4 to 13 bps each net; 0 of 54 lag variants positive on most market-days and the rare
+  positives were 2 to 4 trades; resting orders earn 0 to 3 bps before ~2 bps of gas per quote placed
+  and quoting variants that win one day lose the next.
+- **MON/USDC (control):** the Bybit/OKX lead was real on days 1 to 4 (corr ~0.3), but trading it never
+  cleared costs on unseen data, and since 09-28 activity collapsed ($4.3M/h on 09-26 to ~$50k/h), the
+  book is thin and wide (14 to 19 bps, ~$400 of depth) and every taker or maker test loses.
+- **Jev v3:** worse than the one-line "lead" rule, the prior and the logistic baseline on every day
+  (log loss 1.07 to 1.27 vs 0.81 to 1.06); its lean moves price ~1 bps vs ~23 bps for a taker round
+  trip. It earns no role.
+- **Caveat:** most of the window was a quiet market (volume fell 20x to 100x after 09-28), so this is
+  "no edge in what we could measure", not a claim about a busy Kuru. Phase 3 (paper trading) is not
+  justified by this data.
+
+**Operations:** the extra markets were stopped by the disk guard on 10-08 at 00:00 UTC (disk at 5 GB
+free, 83% used, mostly other tenants); their databases (3.1 GB) are kept. The control keeps recording
+and the guard keeps managing the disk.
 
 ## Disk guard (2026-10-02)
 
