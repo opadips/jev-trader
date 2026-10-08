@@ -120,6 +120,8 @@ Tell the cloud session it is up; it will attach the reports repo and read it fro
   "disk guard" lines of `agent.txt`. To bring the extra markets back after a stop:
   `rm ~/jev-trader/data/agent/markets_off && systemctl --user enable --now jev-markets`.
   Memory: each recorder is capped at 512 MB by its unit (they use ~160 MB); `agent.txt` shows free RAM.
+- **Stop switch:** a `deploy/STOP_RECORDING` file on the `vps` branch keeps both recorders off (data
+  kept, the agent keeps reporting); delete the file and push to record again.
 - **Pause:** `systemctl --user stop jev-agent.timer jev-recorder jev-markets`. **Resume:** `start` instead of `stop`.
 - **Remove everything:** as `jev`, `systemctl --user disable --now jev-agent.timer jev-recorder jev-markets`;
   then as root, `loginctl disable-linger jev && userdel -r jev`, and delete the deploy key on GitHub.
